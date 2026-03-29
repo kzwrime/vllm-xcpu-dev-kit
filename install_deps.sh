@@ -4,7 +4,15 @@
 
 # gcc version should >= 13
 
-apt install gcc g++ cmake ninja-build wget curl vim python3 python3-dev libopenblas-dev tmux tree git net-tools gpg net-tools libnuma-dev ssh openssh-server
+apt update
+apt install \
+    gcc g++ cmake ninja-build \
+    python3 python3-dev \
+    libopenblas-dev libnuma-dev \
+    git ssh openssh-server gpg \
+    wget curl net-tools \
+    vim tmux tree \
+    zip unzip xz-utils
 # apt install mpich
 apt install openmpi-bin libopenmpi-dev
 
@@ -26,7 +34,7 @@ git clone https://github.com/kzwrime/torch_mpi_ext.git
 pip install -r vllm/requirements/build.txt --extra-index-url https://download.pytorch.org/whl/cpu
 pip install -r vllm/requirements/cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu
 pip install setuptools_scm
-pip install modelscope
+pip install modelscope ruff mypy
 pip install clangd==18.1.8.1 clang-format==18.1.3
 
 python -m pip cache remove mpi4py
