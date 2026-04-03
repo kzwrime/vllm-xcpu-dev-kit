@@ -1,5 +1,20 @@
 #!/bin/bash
 
+# vLLM 服务测试脚本
+#
+# 使用说明:
+#   方式1: 通过 -e 参数指定预设文件
+#     ./serve_test/serve_test_template.sh -e ./presets/serial/Qwen3-30B-A3B_dp1_tp1_eager.sh
+#
+#   方式2: 通过 PRESET 环境变量
+#     PRESET=serial/Qwen3-30B-A3B_dp1_tp1_eager ./serve_test/serve_test_template.sh
+#
+#   方式3: 使用 user_env.sh
+#     ./serve_test/serve_test_template.sh
+#
+# 功能说明:
+#   向 vLLM 服务发送测试请求，验证服务是否正常工作
+
 # 查看可用模型
 # curl http://localhost:8000/v1/models
 
@@ -25,7 +40,7 @@ curl http://localhost:${USER_VLLM_PORT}/v1/chat/completions \
     "model": "'"${USER_VLLM_MODEL}"'",
     "messages": [
       {"role": "system", "content": "You are a helpful assistant."},
-      {"role": "user", "content": "欧盟有多少个国家，详细展开论述欧盟现状"}
+      {"role": "user", "content": "请用一段话简单介绍一下量子计算。"}
     ],
     "max_tokens": 16,
     "temperature": 0.5

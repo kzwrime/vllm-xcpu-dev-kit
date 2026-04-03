@@ -6,14 +6,14 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../"
 
 # 在加载模板前设置独立配置项
-export PD_MODE="NOT_MOE"
+export PD_MODE="NOT_MOE" # 特意设置，用原生无 EP 来跑
 
 # 加载基础模板配置
 source "$SCRIPT_DIR/user_env_template.sh"
 
 # 覆盖必要配置
 export USER_VLLM_EAGER_OR_NOT="--enforce-eager"
-export USER_VLLM_MODEL="Qwen/Qwen3-0.6B"
+export USER_VLLM_MODEL="Qwen/Qwen3-30B-A3B-Instruct-2507"
 export USER_VLLM_DATA_PARALLEL_SIZE=1
 export USER_VLLM_TP_SIZE=1
 export USER_VLLM_PP_SIZE=1
