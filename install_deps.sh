@@ -63,17 +63,13 @@ cp vllm/scripts/env_template.sh vllm/scripts/env.sh
 #     export LD_PRELOAD="$TC_PATH:$IOMP_PATH:$LD_PRELOAD"
 #     ```
 #
-# e.g. find .venv -iname *libiomp5.so
-#      .venv/lib/libiomp5.so
-# modify if needed
-TC_PATH=/lib/x86_64-linux-gnu/libtcmalloc_minimal.so.4
-IOMP_PATH=/shared/vllm_dev_v2/.venv/lib/libiomp5.so
-
 cat >> vllm/scripts/env.sh << EOF
 
-# LD_PRELOAD for TCMalloc and Intel OpenMP
-export TC_PATH=$TC_PATH
-export IOMP_PATH=$IOMP_PATH
-export LD_PRELOAD="\$TC_PATH:\$IOMP_PATH:\$LD_PRELOAD"
+# Set LD_PRELOAD for CPU backend (TCMalloc and Intel OpenMP)
+# Find libiomp5.so based on Python location
+_TC_PATH="/usr/lib/x86_64-linux-gnu/libtcmalloc_minimal.so.4"
+_PYTHON_BIN_DIR="\$(dirname "\$(which python)")"
+_IOMP_PATH="\${_PYTHON_BIN_DIR}/../lib/libiomp5.so"
+export LD_PRELOAD="\${_TC_PATH}:\${_IOMP_PATH}:\${LD_PRELOAD}"
 EOF
 
