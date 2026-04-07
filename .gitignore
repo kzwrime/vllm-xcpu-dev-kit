@@ -253,3 +253,6 @@ __marimo__/
 .modelscope
 
 **/torch_compile_cache
+**/torch_compile_debug
+**/vllm_profile
+**/logs
