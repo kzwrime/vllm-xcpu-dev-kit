@@ -58,7 +58,8 @@ def analyze_vllm_trace_enhanced_cn(trace_file, top_n=20, show_iterations=True,
                                     keywords=None, case_sensitive=False,
                                     skip_iterations=0, skip_percent=0,
                                     from_iter=None, to_iter=None,
-                                    count_iterations=None):
+                                    count_iterations=None,
+                                    iteration_ranks_per_line=4):
     """
     增强版分析（中文输出）
 
@@ -73,6 +74,7 @@ def analyze_vllm_trace_enhanced_cn(trace_file, top_n=20, show_iterations=True,
         from_iter: 从第 N 次迭代开始分析（1-based）
         to_iter: 分析到第 N 次迭代（1-based）
         count_iterations: 只分析 N 次迭代
+        iteration_ranks_per_line: [C] 逐迭代分析中每行最多显示多少个 Rank
     """
 
     # Read trace file (supports .json and .json.gz)
@@ -221,6 +223,11 @@ def analyze_vllm_trace_enhanced_cn(trace_file, top_n=20, show_iterations=True,
         desc = "分析所有迭代"
         return (start_idx, end_idx, desc)
 
+    def chunk_list(items, chunk_size):
+        if chunk_size <= 0:
+            chunk_size = len(items) or 1
+        return [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
+
     for rank, (op_name, total_duration) in enumerate(sorted_ops, 1):
         print(f"\n[{rank}] {op_name}")
         print("-" * 100)
@@ -358,9 +365,22 @@ def analyze_vllm_trace_enhanced_cn(trace_file, top_n=20, show_iterations=True,
                             max_imbalance_iter = i
 
                         marker = "⚠️" if imb > 50 else ("⚡" if imb > 20 else "✓")
-                        iter_str = " | ".join(iter_str_parts)
                         iter_num = i + 1  # 转换为 1-based 显示
-                        print(f"    迭代 {iter_num:3d}: {iter_str} | 不均衡度={imb:6.2f}% {marker}")
+                        prefix = f"    迭代 {iter_num:7d}: "
+                        chunks = chunk_list(iter_str_parts, iteration_ranks_per_line)
+
+                        if not chunks:
+                            continue
+
+                        print(prefix + " | ".join(chunks[0]))
+                        continuation_prefix = " " * len(prefix) + "  "
+                        for chunk in chunks[1:-1]:
+                            print(continuation_prefix + " | ".join(chunk))
+
+                        if len(chunks) == 1:
+                            print(f"{continuation_prefix}不均衡度={imb:6.2f}% {marker}")
+                        else:
+                            print(f"{continuation_prefix}{' | '.join(chunks[-1])} | 不均衡度={imb:6.2f}% {marker}")
 
             if per_iter_imbalances:
                 avg_per_iter_imbalance = sum(per_iter_imbalances) / len(per_iter_imbalances)
@@ -459,6 +479,9 @@ def main():
   # 分析第 50-100 次迭代
   python analyze_vllm_enhanced_cn.py trace.json --from-iter 50 --to-iter 100
 
+  # Rank 很多时，逐迭代详情每行显示 8 个 Rank
+  python analyze_vllm_enhanced_cn.py trace.json --count 3 --iteration-ranks-per-line 8
+
   # 只分析通信操作（关键字过滤）
   python analyze_vllm_enhanced_cn.py trace.json -k allreduce alltoallv
 
@@ -491,6 +514,8 @@ def main():
                            help="从第 N 次迭代开始分析（1-based）")
     iter_group.add_argument("--to-iter", type=int, metavar="N",
                            help="分析到第 N 次迭代（1-based，包含）")
+    iter_group.add_argument("--iteration-ranks-per-line", type=int, metavar="N", default=4,
+                           help="逐迭代不均衡度分析中每行最多显示多少个 Rank（默认: 4）")
 
     args = parser.parse_args()
 
@@ -507,6 +532,8 @@ def main():
         parser.error("--to-iter 必须是正整数（1-based）")
     if args.from_iter is not None and args.to_iter is not None and args.from_iter > args.to_iter:
         parser.error("--from-iter 不能大于 --to-iter")
+    if args.iteration_ranks_per_line < 1:
+        parser.error("--iteration-ranks-per-line 必须是正整数")
 
     # 检查参数冲突
     if (args.from_iter is not None or args.to_iter is not None) and (args.skip or args.skip_percent):
@@ -522,7 +549,8 @@ def main():
         args.skip_percent or 0,
         args.from_iter,
         args.to_iter,
-        args.count
+        args.count,
+        args.iteration_ranks_per_line
     )
 
 

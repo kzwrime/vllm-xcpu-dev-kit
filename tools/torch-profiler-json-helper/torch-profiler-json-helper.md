@@ -98,8 +98,9 @@ Writing to trace_merged.json.gz...
 - ✅ 支持迭代范围控制（skip, count, from-iter, to-iter）
 - ✅ 四维分析：传统、方差、迭代、时序
 - ✅ 自动检测交替式负载不均
+- ✅ Rank 很多时逐迭代详情自动换行（默认每行最多 4 个 Rank）
 
-### 最常用的 5 个命令
+### 最常用的 6 个命令
 
 #### 1. 跳过指定数量次调用，分析 decode 阶段
 ```bash
@@ -125,6 +126,16 @@ python analyze_vllm_enhanced_cn.py trace.json --count 5
 #### 5. 分析特定范围
 ```bash
 python analyze_vllm_enhanced_cn.py trace.json --from-iter 50 --to-iter 100
+```
+
+#### 6. Rank 很多时控制逐迭代详情每行显示数量
+```bash
+# 默认：每行最多 4 个 Rank
+python analyze_vllm_enhanced_cn.py 8ranks/trace_merged.json.gz --count 3 -k allreduce
+
+# 自定义：每行最多 8 个 Rank
+python analyze_vllm_enhanced_cn.py 8ranks/trace_merged.json.gz \
+  --count 3 -k allreduce --iteration-ranks-per-line 8
 ```
 
 ### 真实输出示例
@@ -201,6 +212,7 @@ Top 3 操作 - 增强分析
 | `--count N` | 只分析 N 次 | `--count 5` |
 | `--from-iter N` | 从第 N 次开始 | `--from-iter 100` |
 | `--to-iter N` | 到第 N 次结束 | `--to-iter 200` |
+| `--iteration-ranks-per-line N` | [C] 每行最多显示 N 个 Rank | `--iteration-ranks-per-line 8` |
 
 ---
 
@@ -257,6 +269,21 @@ python analyze_vllm_enhanced_cn.py trace.json \
 ```bash
 python analyze_vllm_enhanced_cn.py trace.json \
   --from-iter 50 --to-iter 100 -k moe
+```
+
+### 8 个 Rank：逐迭代详情默认按每行 4 个 Rank 自动换行
+```bash
+python merge_traces.py 8ranks/*world-rank*.pt.trace.json.gz \
+  -o 8ranks/trace_merged.json.gz
+
+python analyze_vllm_enhanced_cn.py 8ranks/trace_merged.json.gz \
+  --count 3 -k allreduce
+```
+
+### 8 个 Rank：逐迭代详情改成每行 8 个 Rank
+```bash
+python analyze_vllm_enhanced_cn.py 8ranks/trace_merged.json.gz \
+  --count 3 -k allreduce --iteration-ranks-per-line 8
 ```
 
 ### 跳过前 10 次（warmup），详细分析
