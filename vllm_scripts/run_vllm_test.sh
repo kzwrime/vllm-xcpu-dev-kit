@@ -15,6 +15,9 @@
 #   --no-test         只启动服务，不运行测试
 #   --bench           启动服务后运行 serve_test/serve_bench_template.sh
 #   --launcher MODE   强制指定启动方式: auto(默认) | mp | mpi
+#
+# 环境变量:
+#   VLLM_TEST_MAX_WAIT   服务启动最大等待时间（秒），默认 300
 
 set -eo pipefail
 
@@ -48,7 +51,7 @@ log_error() {
 }
 
 usage() {
-    sed -n '1,18p' "$0"
+    sed -n '1,20p' "$0"
     cat <<'USAGE'
   选项:
     -e <preset_file>   指定预设文件路径
@@ -56,6 +59,9 @@ usage() {
     --bench            启动服务后运行 bench
     --launcher MODE    强制指定启动方式: auto | mp | mpi
     -h, --help         显示帮助
+
+  环境变量:
+    VLLM_TEST_MAX_WAIT   服务启动最大等待时间（秒），默认 300
 USAGE
 }
 
@@ -386,6 +392,7 @@ wait_for_service() {
 
     echo ""
     log_error "等待超时 (${max_wait} 秒)"
+    log_error "提示: 可通过设置 VLLM_TEST_MAX_WAIT 环境变量调整超时时间（当前: ${max_wait} 秒）"
     if [ -f "$ready_log" ]; then
         tail -30 "$ready_log"
     fi
