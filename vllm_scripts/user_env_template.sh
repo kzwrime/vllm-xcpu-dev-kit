@@ -56,10 +56,16 @@ export PD_MODE="${PD_MODE:-MIXED}"
 
 _VLLM_OPTIONAL_ARGS=" "
 _VLLM_OPTIONAL_ARGS+=" --max-num-seqs 16"
-_VLLM_OPTIONAL_ARGS+=' --profiler-config {"profiler":"torch","torch_profiler_dir":"./vllm_profile","torch_profiler_record_shapes":true,"torch_profiler_with_memory":true,"torch_profiler_with_stack":true,"torch_profiler_with_flops":true,"torch_profiler_use_gzip":true,"torch_profiler_dump_cuda_time_total":true}'
 # _VLLM_OPTIONAL_ARGS+=" --no-enable-prefix-caching"
 # _VLLM_OPTIONAL_ARGS+=" --load-format dummy"
 # _VLLM_OPTIONAL_ARGS+=" --attention-backend TRITON_ATTN"
+
+# Case1: profiler with full config
+_VLLM_OPTIONAL_ARGS+=' --profiler-config {"profiler":"torch","torch_profiler_dir":"./vllm_profile","torch_profiler_record_shapes":true,"torch_profiler_with_memory":true,"torch_profiler_with_stack":true,"torch_profiler_with_flops":true,"torch_profiler_use_gzip":true,"torch_profiler_dump_cuda_time_total":true,"torch_profiler_no_trace_file":false}'
+# Case2: profiler with minimal config (no trace file, only summary)
+# _VLLM_OPTIONAL_ARGS+=' --profiler-config {"profiler":"torch","torch_profiler_dir":"./vllm_profile","torch_profiler_no_trace_file":true}'
+# Case3: profiler with json without stack
+# _VLLM_OPTIONAL_ARGS+=' --profiler-config {"profiler":"torch","torch_profiler_dir":"./vllm_profile","torch_profiler_record_shapes":true,"torch_profiler_with_memory":true,"torch_profiler_with_stack":false,"torch_profiler_with_flops":true,"torch_profiler_use_gzip":true,"torch_profiler_dump_cuda_time_total":true,"torch_profiler_no_trace_file":false}'
 
 # 根据 PD_MODE 自动设置配置
 case ${PD_MODE} in
