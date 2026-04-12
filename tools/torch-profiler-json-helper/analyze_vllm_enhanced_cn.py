@@ -19,6 +19,27 @@ import gzip
 from pathlib import Path
 
 
+def find_median_item(items, value_key):
+    """
+    返回按 value_key 计算的中位数，以及最接近该中位数的实际项。
+
+    Args:
+        items: 元素列表
+        value_key: 提取数值的函数
+
+    Returns:
+        (median_value, median_item)
+    """
+    if not items:
+        return 0, None
+
+    sorted_items = sorted(items, key=value_key)
+    values = [value_key(item) for item in sorted_items]
+    median_value = statistics.median(values)
+    median_item = min(sorted_items, key=lambda item: (abs(value_key(item) - median_value), value_key(item)))
+    return median_value, median_item
+
+
 def read_trace_file(trace_file):
     """
     Read trace file, automatically handling .json.gz compression.
@@ -264,6 +285,7 @@ def analyze_vllm_trace_enhanced_cn(trace_file, top_n=20, show_iterations=True,
         print("  " + "-" * 96)
 
         traditional_timings = []
+        imbalance_pct = 0
         for pid in pids:
             if op_name in processes[pid]:
                 # 应用迭代范围
@@ -300,6 +322,21 @@ def analyze_vllm_trace_enhanced_cn(trace_file, top_n=20, show_iterations=True,
 
                     print(f"    → 传统不均衡度: {imbalance_pct:6.2f}% (最大/最小 = {ratio:.2f}x) {marker}")
 
+        if traditional_timings:
+            min_avg_item = min(traditional_timings, key=lambda x: x["avg"])
+            max_avg_item = max(traditional_timings, key=lambda x: x["avg"])
+            median_avg, median_avg_item = find_median_item(traditional_timings, lambda x: x["avg"])
+            mean_avg = statistics.mean(item["avg"] for item in traditional_timings)
+
+            min_rank_name = process_names.get(min_avg_item["pid"], f"PID {min_avg_item['pid']}")
+            max_rank_name = process_names.get(max_avg_item["pid"], f"PID {max_avg_item['pid']}")
+            median_rank_name = process_names.get(median_avg_item["pid"], f"PID {median_avg_item['pid']}")
+
+            print(f"    → 最小平均时间: {min_avg_item['avg']:10.2f} µs ({min_rank_name})")
+            print(f"    → 中位平均时间: {median_avg:10.2f} µs ({median_rank_name})")
+            print(f"    → 平均平均时间: {mean_avg:10.2f} µs")
+            print(f"    → 最大平均时间: {max_avg_item['avg']:10.2f} µs ({max_rank_name})")
+
         # === 分析 2: 方差分析（Rank 内部稳定性）===
         print("\n  [B] 方差分析（Rank 内部稳定性）:")
         print("  " + "-" * 96)
@@ -325,6 +362,34 @@ def analyze_vllm_trace_enhanced_cn(trace_file, top_n=20, show_iterations=True,
                 range_note = f" [{actual_iterations} 次迭代]" if start_idx > 0 or end_idx < num_iterations else ""
                 print(f"    {proc_name:20s}: 均值={mean:10.2f} µs | 标准差={stdev:10.2f} µs | CV={cv:6.2f}% {cv_marker}{range_note}")
 
+                if durations:
+                    call_stats = []
+                    for call_offset, event in enumerate(events_in_range, start=1):
+                        call_stats.append({
+                            "call_index": start_idx + call_offset,
+                            "duration": event["duration"],
+                            "timestamp": event["timestamp"],
+                        })
+
+                    min_call = min(call_stats, key=lambda x: x["duration"])
+                    max_call = max(call_stats, key=lambda x: x["duration"])
+                    median_call_value, median_call = find_median_item(call_stats, lambda x: x["duration"])
+                    mean_call = statistics.mean(item["duration"] for item in call_stats)
+
+                    print(
+                        f"      最小={min_call['duration']:10.2f} µs "
+                        f"(第 {min_call['call_index']} 次调用, 开始于 {min_call['timestamp']:.0f} µs)"
+                    )
+                    print(
+                        f"      中位={median_call_value:10.2f} µs "
+                        f"(第 {median_call['call_index']} 次调用, 开始于 {median_call['timestamp']:.0f} µs)"
+                    )
+                    print(f"      平均={mean_call:10.2f} µs")
+                    print(
+                        f"      最大={max_call['duration']:10.2f} µs "
+                        f"(第 {max_call['call_index']} 次调用, 开始于 {max_call['timestamp']:.0f} µs)"
+                    )
+
                 if cv > 30:
                     high_variance_ranks.append(proc_name)
 
@@ -337,12 +402,11 @@ def analyze_vllm_trace_enhanced_cn(trace_file, top_n=20, show_iterations=True,
             print("  " + "-" * 96)
 
             per_iter_imbalances = []
-            max_imbalance = 0
-            max_imbalance_iter = -1
 
             for i in range(start_idx, end_idx):
                 iter_durations = []
                 iter_str_parts = []
+                iter_rank_stats = []
 
                 for pid in pids:
                     if op_name in processes[pid] and i < len(processes[pid][op_name]):
@@ -350,6 +414,7 @@ def analyze_vllm_trace_enhanced_cn(trace_file, top_n=20, show_iterations=True,
                         iter_durations.append(dur)
                         proc_name = process_names.get(pid, f"PID {pid}")
                         iter_str_parts.append(f"{proc_name}={dur:6.0f}µs")
+                        iter_rank_stats.append({"rank_name": proc_name, "duration": dur})
 
                 if iter_durations:
                     max_dur = max(iter_durations)
@@ -358,36 +423,44 @@ def analyze_vllm_trace_enhanced_cn(trace_file, top_n=20, show_iterations=True,
 
                     if avg_dur > 0:
                         imb = (max_dur - min_dur) / avg_dur * 100
-                        per_iter_imbalances.append(imb)
-
-                        if imb > max_imbalance:
-                            max_imbalance = imb
-                            max_imbalance_iter = i
+                        per_iter_imbalances.append({"iteration": i + 1, "imbalance": imb})
 
                         marker = "⚠️" if imb > 50 else ("⚡" if imb > 20 else "✓")
                         iter_num = i + 1  # 转换为 1-based 显示
-                        prefix = f"    迭代 {iter_num:7d}: "
+                        prefix = f"    iter {iter_num:7d}: "
                         chunks = chunk_list(iter_str_parts, iteration_ranks_per_line)
 
                         if not chunks:
                             continue
 
                         print(prefix + " | ".join(chunks[0]))
-                        continuation_prefix = " " * len(prefix) + "  "
-                        for chunk in chunks[1:-1]:
+                        continuation_prefix = " " * len(prefix)
+                        for chunk in chunks[1:]:
                             print(continuation_prefix + " | ".join(chunk))
-
-                        if len(chunks) == 1:
-                            print(f"{continuation_prefix}不均衡度={imb:6.2f}% {marker}")
-                        else:
-                            print(f"{continuation_prefix}{' | '.join(chunks[-1])} | 不均衡度={imb:6.2f}% {marker}")
+                        min_iter_item = min(iter_rank_stats, key=lambda x: x["duration"])
+                        max_iter_item = max(iter_rank_stats, key=lambda x: x["duration"])
+                        median_iter_value, median_iter_item = find_median_item(
+                            iter_rank_stats, lambda x: x["duration"]
+                        )
+                        print(
+                            f"{continuation_prefix}不均衡度={imb:6.2f}% {marker}; "
+                            f"最小 {min_iter_item['rank_name']}={min_iter_item['duration']:.0f}µs；"
+                            f"最大 {max_iter_item['rank_name']}={max_iter_item['duration']:.0f}µs；"
+                            f"中位 {median_iter_item['rank_name']}={median_iter_value:.0f}µs"
+                        )
 
             if per_iter_imbalances:
-                avg_per_iter_imbalance = sum(per_iter_imbalances) / len(per_iter_imbalances)
-                max_imbalance_val = max(per_iter_imbalances)
+                min_imbalance_item = min(per_iter_imbalances, key=lambda x: x["imbalance"])
+                max_imbalance_item = max(per_iter_imbalances, key=lambda x: x["imbalance"])
+                median_imbalance, median_imbalance_item = find_median_item(
+                    per_iter_imbalances, lambda x: x["imbalance"]
+                )
+                avg_per_iter_imbalance = statistics.mean(item["imbalance"] for item in per_iter_imbalances)
 
-                print(f"\n    → 平均逐迭代不均衡度: {avg_per_iter_imbalance:6.2f}%")
-                print(f"    → 最大逐迭代不均衡度: {max_imbalance_val:6.2f}% (迭代 {max_imbalance_iter + 1})")
+                print(f"\n    → 最小逐迭代不均衡度: {min_imbalance_item['imbalance']:6.2f}% (迭代 {min_imbalance_item['iteration']})")
+                print(f"    → 中位逐迭代不均衡度: {median_imbalance:6.2f}% (迭代 {median_imbalance_item['iteration']})")
+                print(f"    → 平均逐迭代不均衡度: {avg_per_iter_imbalance:6.2f}%")
+                print(f"    → 最大逐迭代不均衡度: {max_imbalance_item['imbalance']:6.2f}% (迭代 {max_imbalance_item['iteration']})")
 
                 # 与传统方法对比
                 traditional_imbalance = imbalance_pct if len(traditional_timings) > 1 else 0
