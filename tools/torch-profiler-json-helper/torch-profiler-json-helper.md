@@ -6,6 +6,7 @@
 |------|------|
 | `analyze_vllm_enhanced_cn.py` | 中文版，支持 json.gz 的横向/纵向不均衡度分析 |
 | `merge_traces.py` | 合并多个 trace JSON/GZ 文件 |
+| `filter_trace_by_keywords.py` | 从已合并 trace 中筛选指定算子关键词，导出新的 JSON/GZ 文件 |
 
 ---
 
@@ -85,6 +86,63 @@ Writing to trace_merged.json.gz...
    Number of processes: 4
    Output: trace_merged.json.gz
 ================================================================================
+```
+
+---
+
+## ✂️ Trace 关键词筛选 (filter_trace_by_keywords.py)
+
+### 功能特性
+- ✅ 自动处理 `.json.gz` 文件（自动解压）
+- ✅ 支持输出 `.json` 或 `.json.gz`
+- ✅ 支持一个或多个关键词（OR 匹配）
+- ✅ 默认不区分大小写
+- ✅ 保留 `process/thread` 元数据，输出文件可继续用 Chrome trace 或分析脚本打开
+
+### 最常用的 4 个命令
+
+#### 1. 只筛选 alltoallv
+```bash
+python filter_trace_by_keywords.py trace_merged.json.gz \
+  -k alltoallv \
+  -o trace_alltoallv.json.gz
+```
+
+#### 2. 一次筛选多个通信算子
+```bash
+python filter_trace_by_keywords.py trace_merged.json.gz \
+  -k allreduce alltoallv reduce_scatter \
+  -o trace_comm.json.gz
+```
+
+#### 3. 输出未压缩 JSON
+```bash
+python filter_trace_by_keywords.py trace_merged.json.gz \
+  -k moe_prepare_alltoallv moe_finalize_mpi_alltoallv \
+  -o trace_moe_comm.json
+```
+
+#### 4. 区分大小写匹配
+```bash
+python filter_trace_by_keywords.py trace_merged.json.gz \
+  -k AllToAllV \
+  -o trace_AllToAllV.json.gz \
+  --case-sensitive
+```
+
+### 使用场景
+
+当 `trace_merged.json.gz` 很大、Chrome trace 打开太慢，或者你只想单独查看某类通信算子时，先筛出一个小文件再观察或分析：
+
+```bash
+python merge_traces.py 8ranks/*world-rank*.pt.trace.json.gz \
+  -o 8ranks/trace_merged.json.gz
+
+python filter_trace_by_keywords.py 8ranks/trace_merged.json.gz \
+  -k alltoallv groupgemm \
+  -o 8ranks/trace_alltoallv.json.gz
+
+python analyze_vllm_enhanced_cn.py 8ranks/trace_alltoallv.json.gz --count 5
 ```
 
 ---
@@ -298,8 +356,13 @@ python analyze_vllm_enhanced_cn.py trace.json \
 python merge_traces.py complex/*world-rank*.pt.trace.json.gz \
   -o complex/trace_merged.json.gz
 
-# Step 2: 分析合并后的文件
-python analyze_vllm_enhanced_cn.py complex/trace_merged.json.gz \
+# Step 2: 按关键词筛选出更小的 trace
+python filter_trace_by_keywords.py complex/trace_merged.json.gz \
+  -k allreduce alltoallv \
+  -o complex/trace_comm.json.gz
+
+# Step 3: 分析筛选后的文件
+python analyze_vllm_enhanced_cn.py complex/trace_comm.json.gz \
   --skip-percent 50 --count 5 \
   -k allreduce alltoallv
 ```
@@ -312,6 +375,9 @@ python analyze_vllm_enhanced_cn.py complex/trace_merged.json.gz \
 ```bash
 # Merge 工具帮助
 python merge_traces.py --help
+
+# 关键词筛选工具帮助
+python filter_trace_by_keywords.py --help
 
 # 分析工具帮助
 python analyze_vllm_enhanced_cn.py --help
