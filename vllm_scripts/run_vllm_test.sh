@@ -183,7 +183,7 @@ MPI_CLEANUP_LOG="$LOG_DIR/mpi_cleanup.log"
 MPI_WORKERS_LOG="$LOG_DIR/mpi_workers.log"
 LAUNCH_LOG="$LOG_DIR/run_vllm_test.log"
 
-MP_SERVE_LOG="$SCRIPT_DIR/vllm_serve_log.txt"
+MP_SERVE_LOG="$LOG_DIR/vllm_serve_log.txt"
 HEAD_SERVE_LOG="$LOG_DIR/vllm_head_log.txt"
 
 USER_VLLM_MPC_SIZE="${USER_VLLM_MPC_SIZE:-$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE))}"
@@ -219,8 +219,8 @@ backup_old_logs() {
         "$LOG_DIR"/vllm_serve_log_dp_rank*.txt
         "$LOG_DIR"/vllm_worker_log_rank*.txt
         "$LOG_DIR"/vllm_worker_log_rank*.txt.old
-        "$SCRIPT_DIR"/vllm_serve_log.txt
-        "$SCRIPT_DIR"/vllm_serve_log.txt.old
+        "$LOG_DIR"/vllm_serve_log.txt
+        "$LOG_DIR"/vllm_serve_log.txt.old
     )
     local files=()
     local file

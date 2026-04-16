@@ -43,7 +43,7 @@ VLLM_LOGGING_LEVEL=${USER_VLLM_LOGGING_LEVEL} vllm serve ${USER_VLLM_MODEL} \
   ${USER_VLLM_EAGER_OR_NOT} \
   ${VLLM_OPTIONAL_ARGS} \
   --tensor-parallel-size ${USER_VLLM_TP_SIZE} \
-  --data-parallel-size ${USER_VLLM_DATA_PARALLEL_SIZE} 2>&1 | tee vllm_serve_log.txt
+  --data-parallel-size ${USER_VLLM_DATA_PARALLEL_SIZE} 2>&1 | tee logs/vllm_serve_log.txt
 
 # 检查 vLLM 命令的退出状态
 if [ $? -ne 0 ]; then
