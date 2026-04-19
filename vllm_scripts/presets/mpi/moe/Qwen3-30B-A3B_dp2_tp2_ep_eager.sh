@@ -3,7 +3,7 @@
 # Configuration: DP=2, TP=2, PP=1, enforce-eager mode
 # MPI Processes: 4 (DP * TP * PP = 2 * 2 * 1)
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../"
 
 # 在加载模板前设置独立配置项
 export PD_MODE="MIXED"
