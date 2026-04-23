@@ -28,7 +28,7 @@ export VLLM_USE_CPU_SHM_DIST=0
 export VLLM_LOOPBACK_IP=$(hostname -I | awk '{print $1}')
 # export VLLM_LOOPBACK_IP=$(ifconfig eth0 | grep "inet " | awk '{print $2}')
 
-export VLLM_USE_XCPU_LINEAR=0
+export VLLM_USE_XCPU_LINEAR=1
 # export TORCH_XCPU_ENABLE_CHECK=0
 # export VLLM_CPU_MOCK_LINEAR=1
 export VLLM_CPU_USE_MPI=0
@@ -36,13 +36,15 @@ export TORCHINDUCTOR_CPP_WRAPPER=1
 export VLLM_DISABLE_TQDM_AND_MONITOR=1
 export VLLM_SHARED_EXPERT_DISABLE_TP=1
 export VLLM_USE_XCPU_TOPK_SOFTMAX=1
+export VLLM_USE_XCPU_TOPK_TOPP_SAMPLER=1
+export VLLM_USE_V2_MODEL_RUNNER=1
 
 # 开启 torch_all_to_all_single / mpi_alltoallv 时，必须关闭，因此设置为总是关闭即可
 export VLLM_ENABLE_SEQUENCE_PARALLEL_MOE=0
 
-export VLLM_ALL2ALL_BACKEND_XCPU="torch_all_to_all_single" # Fallback solution with universal compatibility
-# export VLLM_ALL2ALL_BACKEND_XCPU="mpi_alltoallv" # Requires: VLLM_CPU_USE_MPI=1
-export VLLM_MPI_ALLTOALLV_VERSION="v1"  # v2 采用新的 alltoallv_put
+# export VLLM_ALL2ALL_BACKEND_XCPU="torch_all_to_all_single" # Fallback solution with universal compatibility
+export VLLM_ALL2ALL_BACKEND_XCPU="mpi_alltoallv" # Requires: VLLM_CPU_USE_MPI=1
+export VLLM_MPI_ALLTOALLV_VERSION="v2"  # v2 采用新的 alltoallv_put
 
 # ========================================
 # PD_MODE 配置
@@ -119,7 +121,7 @@ case ${PD_MODE} in
 
     "NOT_MOE")
         ### Dense 模型，不做任何额外设置 ###
-        export USER_VLLM_MAX_NUM_BATCHED_TOKENS=8192
+        export USER_VLLM_MAX_NUM_BATCHED_TOKENS=256
 
         ;;
 
@@ -145,4 +147,3 @@ echo "========================================="
 # TORCHINDUCTOR_CACHE_DIR 必须是全局路径
 export TORCHINDUCTOR_CACHE_DIR="$PWD/torch_compile_cache"
 
-export USER_VLLM_MODEL="Qwen/Qwen3-30B-A3B-Instruct-2507"
