@@ -3,6 +3,7 @@
 包括 
 
 - vllm (vllm 推理引擎本体)
+- torch_mcpu (torch mcpu backend using privateuse1)
 - torch_xcpu (算子库)
 - torch_mpi_ext (通用通信库)
 - vllm-xcpu-plugin (遵循 vllm 扩展插件体系开发的插件，用于连接 vllm 和 torch_xcpu/torch_mpi_ext，提供平台特定功能)。
