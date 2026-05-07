@@ -60,7 +60,7 @@ _VLLM_OPTIONAL_ARGS=" "
 _VLLM_OPTIONAL_ARGS+=" --max-num-seqs 16"
 # _VLLM_OPTIONAL_ARGS+=" --no-enable-prefix-caching"
 # _VLLM_OPTIONAL_ARGS+=" --load-format dummy"
-# _VLLM_OPTIONAL_ARGS+=" --attention-backend TRITON_ATTN"
+_VLLM_OPTIONAL_ARGS+=" --attention-backend TRITON_ATTN"
 
 # Case1: profiler with full config
 _VLLM_OPTIONAL_ARGS+=' --profiler-config {"profiler":"torch","torch_profiler_dir":"./vllm_profile","torch_profiler_record_shapes":true,"torch_profiler_with_memory":true,"torch_profiler_with_stack":true,"torch_profiler_with_flops":true,"torch_profiler_use_gzip":true,"torch_profiler_dump_cuda_time_total":true,"torch_profiler_no_trace_file":false}'
@@ -145,5 +145,22 @@ echo "  VLLM_OPTIONAL_ARGS: ${VLLM_OPTIONAL_ARGS}"
 echo "========================================="
 
 # TORCHINDUCTOR_CACHE_DIR 必须是全局路径
-export TORCHINDUCTOR_CACHE_DIR="$PWD/torch_compile_cache"
+export TORCHINDUCTOR_CACHE_DIR="$PWD/torch_compile_cache_opt"
 
+export TORCH_DEVICE_BACKEND_AUTOLOAD=0
+export HF_HUB_OFFLINE=1
+
+export AOTI_TORCH_ALWAYS_REUSE=1
+export TORCHINDUCTOR_DIRECT_DISPATCH_PREFIXES="torch_xcpu,torch_mpi_ext.all_reduce__wrapper"
+
+_USER_ENV_TEMPLATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_TORCH_XCPU_AOTI_ENV="$(
+AOTI_EXTRA_CFLAGS="${AOTI_EXTRA_CFLAGS-}" \
+AOTI_EXTRA_LDFLAGS="${AOTI_EXTRA_LDFLAGS-}" \
+python "${_USER_ENV_TEMPLATE_DIR}/torch_xcpu_aoti_env.py"
+)" || exit 1
+eval "${_TORCH_XCPU_AOTI_ENV}"
+unset _USER_ENV_TEMPLATE_DIR _TORCH_XCPU_AOTI_ENV
+
+echo "AOTI_EXTRA_CFLAGS: ${AOTI_EXTRA_CFLAGS}"
+echo "AOTI_EXTRA_LDFLAGS: ${AOTI_EXTRA_LDFLAGS}"
