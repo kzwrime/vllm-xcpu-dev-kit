@@ -256,3 +256,4 @@ __marimo__/
 **/torch_compile_debug
 **/vllm_profile
 **/logs
+tmp

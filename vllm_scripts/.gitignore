@@ -1,3 +1,6 @@
 env.sh
 user_env.sh
 logs
+dump_shape
+torch_compile*
+tmp
