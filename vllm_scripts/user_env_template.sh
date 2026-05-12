@@ -46,6 +46,10 @@ export VLLM_ENABLE_SEQUENCE_PARALLEL_MOE=0
 export VLLM_ALL2ALL_BACKEND_XCPU="mpi_alltoallv" # Requires: VLLM_CPU_USE_MPI=1
 export VLLM_MPI_ALLTOALLV_VERSION="v2"  # v2 采用新的 alltoallv_put
 
+# xcpu runtime dummy run fast path: dummy rank 仍执行同步通信，但跳过非必要 token 计算
+# 默认设置为 1；设置为 0 可关闭该优化以回退到原始 dummy run 行为
+export VLLM_XCPU_ENABLE_DUMMY_RUN_FAST_PATH="${VLLM_XCPU_ENABLE_DUMMY_RUN_FAST_PATH:-1}"
+
 # ========================================
 # PD_MODE 配置
 # ========================================
