@@ -23,7 +23,6 @@ export VLLM_USE_MPI_COORD=1
 export VLLM_CPU_USE_MPI=1
 # export VLLM_MLA_DISABLE=1
 export VLLM_ALL2ALL_BACKEND_XCPU="all_to_all_single"
-export VLLM_USE_MODELSCOPE=True
 
 # 自动获取预设名称和目录
 preset_name=$(basename "${BASH_SOURCE[0]}" .sh)
