@@ -14,6 +14,7 @@
 # 额外选项:
 #   --no-test         只启动服务，不运行测试
 #   --bench           启动服务后运行 serve_test/serve_bench_template.sh
+#   --coverage        启动服务后运行 serve_test/serve_bench_coverage.sh 并 dump shapes
 #   --launcher MODE   强制指定启动方式: auto(默认) | mp | mpi
 #
 # 环境变量:
@@ -57,6 +58,7 @@ usage() {
     -e <preset_file>   指定预设文件路径
     --no-test          只启动服务，不运行测试
     --bench            启动服务后运行 bench
+    --coverage         启动服务后运行 coverage bench，并 dump shapes
     --launcher MODE    强制指定启动方式: auto | mp | mpi
     -h, --help         显示帮助
 
@@ -67,6 +69,14 @@ USAGE
 
 sanitize_name() {
     printf '%s' "$1" | sed -E 's#^\./##; s#^presets/##; s#\.sh$##; s#[^A-Za-z0-9._-]+#_#g; s#_+#_#g; s#^_##; s#_$##'
+}
+
+preset_basename() {
+    local value="$1"
+    value="${value%/}"
+    value="${value##*/}"
+    value="${value%.sh}"
+    sanitize_name "$value"
 }
 
 make_unique_dir() {
@@ -95,6 +105,7 @@ PRESET_FILE_INPUT=""
 ENV_ARGS=()
 RUN_START_TS="$(date +%Y%m%d_%H%M%S)"
 PRESET_TAG=""
+PRESET_NAME=""
 TEST_EXIT_CODE=0
 
 while [ $# -gt 0 ]; do
@@ -115,6 +126,10 @@ while [ $# -gt 0 ]; do
             ;;
         --bench)
             TEST_MODE="bench"
+            shift
+            ;;
+        --coverage)
+            TEST_MODE="coverage"
             shift
             ;;
         --launcher)
@@ -156,17 +171,21 @@ if [ -n "$PRESET_FILE_INPUT" ]; then
     load_preset_file "$PRESET_FILE_INPUT"
     CONFIG_SOURCE="$PRESET_FILE_INPUT"
     PRESET_TAG="$(sanitize_name "$PRESET_FILE_INPUT")"
+    PRESET_NAME="$(preset_basename "$PRESET_FILE_INPUT")"
 elif [ -n "${PRESET:-}" ]; then
     load_user_config "$SCRIPT_DIR"
     CONFIG_SOURCE="PRESET=${PRESET}"
     PRESET_TAG="$(sanitize_name "$PRESET")"
+    PRESET_NAME="$(preset_basename "$PRESET")"
 else
     load_user_config "$SCRIPT_DIR"
     CONFIG_SOURCE="user_env.sh / user_env_template.sh"
     PRESET_TAG="user_env"
+    PRESET_NAME="user_env"
 fi
 
 [ -n "$PRESET_TAG" ] || PRESET_TAG="user_env"
+[ -n "$PRESET_NAME" ] || PRESET_NAME="$PRESET_TAG"
 
 check_and_print_env "USER_VLLM_MODEL"
 check_and_print_env "USER_VLLM_PORT"
@@ -475,6 +494,15 @@ run_test() {
             log_warning "Bench 退出码: $TEST_EXIT_CODE"
         fi
         log_info "Bench 日志: $BENCH_LOG"
+    elif [ "$TEST_MODE" = "coverage" ]; then
+        log_info "运行 coverage bench..."
+        if bash "$SCRIPT_DIR/serve_test/serve_bench_coverage.sh" "${ENV_ARGS[@]}" > "$BENCH_LOG" 2>&1; then
+            log_success "Coverage bench 完成"
+        else
+            TEST_EXIT_CODE=$?
+            log_warning "Coverage bench 退出码: $TEST_EXIT_CODE"
+        fi
+        log_info "Bench 日志: $BENCH_LOG"
     else
         log_info "跳过测试，服务保持运行"
         log_info "手动测试示例: curl http://localhost:${USER_VLLM_PORT}/v1/models"
@@ -492,6 +520,13 @@ log_info "模型: $USER_VLLM_MODEL"
 log_info "端口: $USER_VLLM_PORT"
 log_info "并行配置: DP=${USER_VLLM_DATA_PARALLEL_SIZE}, TP=${USER_VLLM_TP_SIZE}, PP=${USER_VLLM_PP_SIZE}"
 log_info "测试模式: $TEST_MODE"
+
+if [ "$TEST_MODE" = "coverage" ]; then
+    export TORCH_XCPU_DUMP_SHAPES=1
+    export TORCH_XCPU_DUMP_SHAPES_OUTPUT_DIR="./dump_shape/${PRESET_NAME}"
+    log_info "Dump shapes: TORCH_XCPU_DUMP_SHAPES=$TORCH_XCPU_DUMP_SHAPES"
+    log_info "Dump shapes 输出目录: $TORCH_XCPU_DUMP_SHAPES_OUTPUT_DIR"
+fi
 
 backup_old_logs
 
@@ -515,6 +550,8 @@ fi
 if [ "$TEST_MODE" = "test" ]; then
     log_info "  Test:  $TEST_LOG"
 elif [ "$TEST_MODE" = "bench" ]; then
+    log_info "  Bench: $BENCH_LOG"
+elif [ "$TEST_MODE" = "coverage" ]; then
     log_info "  Bench: $BENCH_LOG"
 fi
 log_info "  Launch: $LAUNCH_LOG"
