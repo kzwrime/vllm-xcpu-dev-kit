@@ -31,6 +31,7 @@ git clone https://github.com/kzwrime/vllm-xcpu-plugin.git
 git clone https://github.com/kzwrime/vllm.git
 git clone https://github.com/kzwrime/torch_xcpu.git
 git clone https://github.com/kzwrime/torch_mpi_ext.git
+git clone https://github.com/kzwrime/torch_mcpu.git
 
 pip install -r vllm/requirements/build.txt --extra-index-url https://download.pytorch.org/whl/cpu
 pip install -r vllm/requirements/cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu
