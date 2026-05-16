@@ -39,7 +39,7 @@ export VLLM_USE_XCPU_TOPK_SOFTMAX=1
 export VLLM_USE_XCPU_TOPK_TOPP_SAMPLER=1
 export VLLM_USE_V2_MODEL_RUNNER=1
 
-# 开启 torch_all_to_all_single / mpi_alltoallv 时，必须关闭，因此设置为总是关闭即可
+# 开启 mpi_alltoallv v1/v2 时，必须关闭，开启 mpi_alltoallv v3 时，必须打开
 export VLLM_ENABLE_SEQUENCE_PARALLEL_MOE=0
 
 # export VLLM_ALL2ALL_BACKEND_XCPU="torch_all_to_all_single" # Fallback solution with universal compatibility
@@ -63,8 +63,12 @@ export PD_MODE="${PD_MODE:-MIXED}"
 _VLLM_OPTIONAL_ARGS=" "
 _VLLM_OPTIONAL_ARGS+=" --max-num-seqs 16"
 # _VLLM_OPTIONAL_ARGS+=" --no-enable-prefix-caching"
+# _VLLM_OPTIONAL_ARGS+=" --no-async-scheduling"
 # _VLLM_OPTIONAL_ARGS+=" --load-format dummy"
-_VLLM_OPTIONAL_ARGS+=" --attention-backend TRITON_ATTN"
+
+# _VLLM_OPTIONAL_ARGS+=" --attention-backend TRITON_ATTN"
+# _VLLM_OPTIONAL_ARGS+=" --attention-backend TRITON_MLA"
+# 无需设置 --attention-backend，会自行依据模型选择这两个
 
 # Case1: profiler with full config
 _VLLM_OPTIONAL_ARGS+=' --profiler-config {"profiler":"torch","torch_profiler_dir":"./vllm_profile","torch_profiler_record_shapes":true,"torch_profiler_with_memory":true,"torch_profiler_with_stack":true,"torch_profiler_with_flops":true,"torch_profiler_use_gzip":true,"torch_profiler_dump_cuda_time_total":true,"torch_profiler_no_trace_file":false}'
@@ -92,7 +96,7 @@ case ${PD_MODE} in
 
         # 通过 DP_SIZE * MAX_BATCHED_TOKENS * min(topk, num_local_experts) 来控制 all2allv 和 MoE 缓冲区 Token 数
         # Prefill 时 DP 较少，将 MAX_BATCHED_TOKENS 调大
-        MAX_BATCHED_TOKENS=4096
+        MAX_BATCHED_TOKENS="${USER_VLLM_MAX_NUM_BATCHED_TOKENS:-4096}"
         export USER_VLLM_MAX_NUM_BATCHED_TOKENS=${MAX_BATCHED_TOKENS}
         export VLLM_MOE_DP_CHUNK_SIZE=${MAX_BATCHED_TOKENS}
         export VLLM_ENABLE_MOE_DP_CHUNK=1
@@ -114,7 +118,7 @@ case ${PD_MODE} in
 
         # 通过 DP_SIZE * MAX_BATCHED_TOKENS * min(topk, num_local_experts) 来控制 all2allv 和 MoE 缓冲区 Token 数
         # Decode 时 DP 较多，将 MAX_BATCHED_TOKENS 调小
-        MAX_BATCHED_TOKENS=256
+        MAX_BATCHED_TOKENS="${USER_VLLM_MAX_NUM_BATCHED_TOKENS:-256}"
         export USER_VLLM_MAX_NUM_BATCHED_TOKENS=${MAX_BATCHED_TOKENS}
         export VLLM_MOE_DP_CHUNK_SIZE=${MAX_BATCHED_TOKENS}
         export VLLM_ENABLE_MOE_DP_CHUNK=0 # torch.compile 目前不兼容 MOE_DP_CHUNK
@@ -125,7 +129,7 @@ case ${PD_MODE} in
 
     "NOT_MOE")
         ### Dense 模型，不做任何额外设置 ###
-        export USER_VLLM_MAX_NUM_BATCHED_TOKENS=256
+        export USER_VLLM_MAX_NUM_BATCHED_TOKENS="${USER_VLLM_MAX_NUM_BATCHED_TOKENS:-256}"
 
         ;;
 
