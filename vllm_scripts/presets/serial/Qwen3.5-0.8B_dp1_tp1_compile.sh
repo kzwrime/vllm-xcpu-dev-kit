@@ -21,7 +21,9 @@ export USER_VLLM_TP_SIZE=1
 export USER_VLLM_PP_SIZE=1
 export USER_VLLM_MPC_SIZE=$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE))
 unset VLLM_DISABLE_TQDM_AND_MONITOR
-export TORCHINDUCTOR_CPP_WRAPPER=0
+
+_VLLM_OPTIONAL_ARGS+=" --reasoning-parser qwen3"
+export VLLM_OPTIONAL_ARGS="${_VLLM_OPTIONAL_ARGS}"
 
 # 自动获取预设名称和目录
 preset_name=$(basename "${BASH_SOURCE[0]}" .sh)

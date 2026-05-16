@@ -21,6 +21,9 @@ export USER_VLLM_MPC_SIZE=$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE))
 export VLLM_USE_MPI_COORD=1
 export VLLM_CPU_USE_MPI=1
 
+_VLLM_OPTIONAL_ARGS+=" --reasoning-parser qwen3"
+export VLLM_OPTIONAL_ARGS="${_VLLM_OPTIONAL_ARGS}"
+
 # 自动获取预设名称和目录
 preset_name=$(basename "${BASH_SOURCE[0]}" .sh)
 preset_dir=$(basename "$(dirname "${BASH_SOURCE[0]}")")
