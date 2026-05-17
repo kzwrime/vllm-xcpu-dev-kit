@@ -7,6 +7,38 @@
 | `analyze_vllm_enhanced_cn.py` | 中文版，支持 json.gz 的横向/纵向不均衡度分析 |
 | `merge_traces.py` | 合并多个 trace JSON/GZ 文件 |
 | `filter_trace_by_keywords.py` | 从已合并 trace 中筛选指定算子关键词，导出新的 JSON/GZ 文件 |
+| `export_cpu_ops.py` | 从 PyTorch profiler trace 中筛选所有 `cpu_op`，导出“一次算子调用一行”的 CSV |
+
+---
+
+## 🧾 导出 CPU 算子明细 (export_cpu_ops.py)
+
+### 功能特性
+- ✅ 自动处理 `.json` 和 `.json.gz`
+- ✅ 只导出 `cat == "cpu_op"` 的 PyTorch CPU operator 事件
+- ✅ 每次算子调用输出为 CSV 的一行
+- ✅ 默认字段包含算子名、pid/tid、开始时间、耗时、External id、Record function id、输入类型、shape、stride、Concrete Inputs
+
+### 常用命令
+
+#### 1. 使用默认输出路径
+```bash
+python export_cpu_ops.py profile.pt.trace.json.gz
+```
+
+输出文件默认为同目录下的 `profile.cpu_ops.csv`。
+
+#### 2. 指定输出 CSV
+```bash
+python export_cpu_ops.py profile.pt.trace.json.gz -o cpu_ops.csv
+```
+
+#### 3. 额外保留完整 args JSON
+```bash
+python export_cpu_ops.py profile.pt.trace.json.gz \
+  -o cpu_ops.csv \
+  --include-args-json
+```
 
 ---
 
