@@ -460,7 +460,13 @@ start_mpi_launcher() {
 
     sleep 2
 
-    setsid mpirun -np "$MPI_COUNT" bash "$SCRIPT_DIR/serve/serve_mp_rpc_all_mpi_template.sh" "${ENV_ARGS[@]}" >> "$MPI_WORKERS_LOG" 2>&1 &
+    local mpi_run_args_string="${VLLM_MPI_RUN_ARGS:---bind-to none --map-by slot}"
+    local mpi_run_args=()
+    # shellcheck disable=SC2206
+    mpi_run_args=($mpi_run_args_string)
+    log_info "MPI 额外参数: ${mpi_run_args[*]}"
+
+    setsid mpirun "${mpi_run_args[@]}" -np "$MPI_COUNT" bash "$SCRIPT_DIR/serve/serve_mp_rpc_all_mpi_template.sh" "${ENV_ARGS[@]}" >> "$MPI_WORKERS_LOG" 2>&1 &
     local mpi_pid=$!
     record_pid "$mpi_pid"
     log_info "MPI PID: $mpi_pid"
