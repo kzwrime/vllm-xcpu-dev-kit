@@ -18,6 +18,7 @@
 import argparse
 import asyncio
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -40,23 +41,26 @@ def source_env_with_preset(script_dir, preset_file=None):
     3. 用户自定义配置 (user_env.sh)
     4. 模板文件回退 (user_env_template.sh)
     """
+    vllm_scripts_dir = os.path.abspath(os.path.join(script_dir, ".."))
+    common_sh = os.path.join(vllm_scripts_dir, "common.sh")
+
     # 构建与 parse_args_and_load_env 相同的 bash 命令
     bash_command = f"""
 set -e
-source {script_dir}/../common.sh
-
-# 如果通过 -e 参数指定了预设文件
+source {shlex.quote(common_sh)}
+load_env_file {shlex.quote(os.path.join(vllm_scripts_dir, "env.sh"))}
 """
 
     if preset_file:
         bash_command += f"""
-load_preset_file "{preset_file}"
+load_preset_file {shlex.quote(preset_file)}
+"""
+    else:
+        bash_command += f"""
+load_user_config {shlex.quote(vllm_scripts_dir)}
 """
 
     bash_command += f"""
-# 否则使用常规的 load_user_config 逻辑
-load_user_config "{script_dir}/.."
-
 # 输出所有环境变量
 env
 """

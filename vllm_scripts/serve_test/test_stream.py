@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import argparse
 import os
+import shlex
 import subprocess
 import sys
 
@@ -22,23 +23,26 @@ def source_env_with_preset(script_dir, preset_file=None):
     3. 用户自定义配置 (user_env.sh)
     4. 模板文件回退 (user_env_template.sh)
     """
+    vllm_scripts_dir = os.path.abspath(os.path.join(script_dir, ".."))
+    common_sh = os.path.join(vllm_scripts_dir, "common.sh")
+
     # 构建与 parse_args_and_load_env 相同的 bash 命令
     bash_command = f"""
 set -e
-source {script_dir}/../common.sh
-
-# 如果通过 -e 参数指定了预设文件
+source {shlex.quote(common_sh)}
+load_env_file {shlex.quote(os.path.join(vllm_scripts_dir, "env.sh"))}
 """
 
     if preset_file:
         bash_command += f"""
-load_preset_file "{preset_file}"
+load_preset_file {shlex.quote(preset_file)}
+"""
+    else:
+        bash_command += f"""
+load_user_config {shlex.quote(vllm_scripts_dir)}
 """
 
     bash_command += f"""
-# 否则使用常规的 load_user_config 逻辑
-load_user_config "{script_dir}/.."
-
 # 输出所有环境变量
 env
 """
@@ -105,33 +109,33 @@ def main():
 
     try:
         # 4. 发起流式请求
-        # response = client.chat.completions.create(
-        #     model=MODEL_NAME,
-        #     messages=[
-        #         {"role": "user", "content": "请用一段话简单介绍一下量子计算。"}
-        #     ],
-        #     stream=True,  # 开启流式输出
-        #     temperature=0.5,
-        #     max_tokens=3000,
-        # )
-
-        # # 5. 实时打印返回的数据块 (chunks)
-        # for chunk in response:
-        #     content = chunk.choices[0].delta.content
-        #     if content:
-        #         # 使用 end="" 和 flush=True 确保文字能够逐字平滑显示
-        #         print(content, end="", flush=True)
-
-        response = client.completions.create(
-            model=MODEL_NAME,  # 注意：必须使用支持补全接口的模型
-            prompt="请用一段话简单介绍一下量子计算。", # 这里是纯字符串，不是 messages 列表
-            stream=True,
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "user", "content": "请用一段话简单介绍一下量子计算。"},
+            ],
+            stream=True,  # 开启流式输出
             temperature=0.5,
             max_tokens=3000,
         )
+
+        # # 5. 实时打印返回的数据块 (chunks)
         for chunk in response:
-            if chunk.choices[0].text:
-                print(chunk.choices[0].text, end="", flush=True)
+            content = chunk.choices[0].delta.content
+            if content:
+                # 使用 end="" 和 flush=True 确保文字能够逐字平滑显示
+                print(content, end="", flush=True)
+
+        # response = client.completions.create(
+        #     model=MODEL_NAME,  # 注意：必须使用支持补全接口的模型
+        #     prompt="请用一段话简单介绍一下量子计算。", # 这里是纯字符串，不是 messages 列表
+        #     stream=True,
+        #     temperature=0.5,
+        #     max_tokens=3000,
+        # )
+        # for chunk in response:
+        #     if chunk.choices[0].text:
+        #         print(chunk.choices[0].text, end="", flush=True)
 
     except Exception as e:
         print(f"\n[错误] 请求失败: {e}")
