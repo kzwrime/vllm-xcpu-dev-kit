@@ -423,17 +423,17 @@ extract_model_reply() {
     local raw_output="$1"
 
     if command -v jq >/dev/null 2>&1; then
-        content=$(printf '%s' "$raw_output" | jq -r '.choices[0].message.content // .choices[0].text // empty' 2>/dev/null || true)
+        content=$(printf '%s' "$raw_output" | jq -r '.choices[0].message.content // .choices[0].text // .choices[0].message.reasoning // empty' 2>/dev/null || true)
     fi
 
     if [ -z "$content" ]; then
-        content=$(printf '%s' "$raw_output" | grep -oP '"(content|text)":\s*"\K[^"]*' | head -1 || true)
+        content=$(printf '%s' "$raw_output" | grep -oP '"(content|text|reasoning)":\s*"\K[^"]*' | head -1 || true)
     fi
 
     if [ -n "$content" ]; then
         echo -e "${GREEN}${content}${NC}"
     else
-        log_warning "未能从响应中提取 content/text 字段"
+        log_warning "未能从响应中提取 content/text/reasoning 字段"
     fi
 }
 
