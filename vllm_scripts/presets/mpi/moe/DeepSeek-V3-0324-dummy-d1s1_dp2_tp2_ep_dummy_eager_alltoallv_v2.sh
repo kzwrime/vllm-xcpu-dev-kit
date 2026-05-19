@@ -6,7 +6,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../"
 
 # 在加载模板前设置独立配置项
-export PD_MODE="NOT_MOE"
+export PD_MODE="MIXED"
 
 # 加载基础模板配置
 source "$SCRIPT_DIR/user_env_template.sh"
@@ -14,13 +14,14 @@ source "$SCRIPT_DIR/user_env_template.sh"
 # 覆盖必要配置
 export USER_VLLM_EAGER_OR_NOT="--enforce-eager"
 export USER_VLLM_MODEL="../models/deepseek-ai/DeepSeek-V3-0324-dummy-dense-1-moe-1"
-export USER_VLLM_DATA_PARALLEL_SIZE=1
-export USER_VLLM_TP_SIZE=1
+export USER_VLLM_DATA_PARALLEL_SIZE=2
+export USER_VLLM_TP_SIZE=2
 export USER_VLLM_PP_SIZE=1
 export USER_VLLM_MPC_SIZE=$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE))
 export VLLM_USE_MPI_COORD=1
 export VLLM_CPU_USE_MPI=1
-unset VLLM_ALL2ALL_BACKEND_XCPU
+export VLLM_ALL2ALL_BACKEND_XCPU="mpi_alltoallv"
+export VLLM_MPI_ALLTOALLV_VERSION="v2"
 
 _VLLM_OPTIONAL_ARGS+=" --load-format dummy"
 
