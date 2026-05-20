@@ -47,3 +47,18 @@ curl --silent --show-error \
     "max_tokens": 16,
     "temperature": 0.5
   }'
+
+# curl --silent --show-error \
+#   --write-out '\ncurl_time_total_seconds=%{time_total}\n' \
+#   "http://localhost:${USER_VLLM_PORT}/v1/chat/completions" \
+#   -H "Content-Type: application/json" \
+#   -H "Authorization: Bearer empty" \
+#   -d '{
+#     "model": "'"${USER_VLLM_MODEL}"'",
+#     "messages": [
+#       {"role": "system", "content": "You are a helpful assistant."},
+#       {"role": "user", "content": "欧盟有多少个国家，详细展开论述欧盟现状。"}
+#     ],
+#     "max_tokens": 5000,
+#     "temperature": 0
+#   }'
