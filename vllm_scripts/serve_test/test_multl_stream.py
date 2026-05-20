@@ -95,6 +95,9 @@ def parse_args():
   # 通过 -e 参数指定预设文件
   python test_multl_stream.py -e ./presets/serial/Qwen3-30B-A3B_dp1_tp1_eager.sh
 
+  # 限制每个请求的回答长度
+  python test_multl_stream.py -e ./presets/serial/Qwen3-30B-A3B_dp1_tp1_eager.sh --max-tokens 16
+
   # 通过 PRESET 环境变量
   PRESET=serial/Qwen3-30B-A3B_dp1_tp1_eager python test_multl_stream.py
 
@@ -106,6 +109,12 @@ def parse_args():
         "-e",
         metavar="预设文件",
         help="指定预设文件路径（相对于当前目录或绝对路径）"
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=16,
+        help="限制每个请求的最大输出 token 数，默认 16",
     )
     return parser.parse_args()
 
@@ -120,6 +129,10 @@ env_vars = source_env_with_preset(script_dir, preset_file=args.e)
 # 3. 从环境变量中获取配置
 MODEL_NAME = env_vars.get("USER_VLLM_MODEL", "你的模型名称")
 PORT = env_vars.get("USER_VLLM_PORT", "8000")
+MAX_TOKENS = args.max_tokens
+if MAX_TOKENS <= 0:
+    print("[错误] --max-tokens 必须大于 0")
+    sys.exit(1)
 
 # 4. 初始化异步客户端
 client = AsyncOpenAI(
@@ -179,7 +192,7 @@ async def fetch_stream(task_id: int, prompt: str):
                 messages=[{"role": "user", "content": prompt}],
                 stream=True,  # 开启流式输出
                 temperature=0.7,
-                max_tokens=2048,
+                max_tokens=MAX_TOKENS,
             )
 
             # 实时接收数据块
@@ -247,6 +260,7 @@ async def main():
     print("开始并发测试流式输出")
     print(f"模型: {MODEL_NAME}")
     print(f"端口: {PORT}")
+    print(f"max_tokens: {MAX_TOKENS}")
     print(f"日志文件: {os.getcwd()}/vllm_task_*.log")
     print("提示：模型输出将流式写入独立的日志文件，屏幕仅显示实时状态。\n")
 

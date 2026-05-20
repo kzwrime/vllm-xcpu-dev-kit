@@ -13,6 +13,9 @@
 #
 # 额外选项:
 #   --no-test         只启动服务，不运行测试
+#   --multi-test      启动服务后运行并发 multi test
+#   --multi-test-max-tokens NUM
+#                    multi test 每个请求的最大输出 token 数，默认 16
 #   --bench           启动服务后运行 serve_test/serve_bench_template.sh
 #   --coverage        启动服务后运行 serve_test/serve_bench_coverage.sh 并 dump shapes
 #   --launcher MODE   强制指定启动方式: auto(默认) | mp | mpi
@@ -57,6 +60,9 @@ usage() {
   选项:
     -e <preset_file>   指定预设文件路径
     --no-test          只启动服务，不运行测试
+    --multi-test       启动服务后运行 serve_test/test_multl_stream.py
+    --multi-test-max-tokens NUM
+                       multi test 每个请求的最大输出 token 数，默认 16
     --bench            启动服务后运行 bench
     --coverage         启动服务后运行 coverage bench，并 dump shapes
     --launcher MODE    强制指定启动方式: auto | mp | mpi
@@ -107,6 +113,7 @@ RUN_START_TS="$(date +%Y%m%d_%H%M%S)"
 PRESET_TAG=""
 PRESET_NAME=""
 TEST_EXIT_CODE=0
+MULTI_TEST_MAX_TOKENS=16
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -122,6 +129,23 @@ while [ $# -gt 0 ]; do
             ;;
         --no-test)
             TEST_MODE="none"
+            shift
+            ;;
+        --multi-test)
+            TEST_MODE="multi"
+            shift
+            ;;
+        --multi-test-max-tokens)
+            if [ $# -lt 2 ]; then
+                log_error "--multi-test-max-tokens 需要一个数字"
+                usage
+                exit 1
+            fi
+            MULTI_TEST_MAX_TOKENS="$2"
+            shift 2
+            ;;
+        --multi-test-max-tokens=*)
+            MULTI_TEST_MAX_TOKENS="${1#*=}"
             shift
             ;;
         --bench)
@@ -165,6 +189,11 @@ case "$LAUNCHER" in
         exit 1
         ;;
 esac
+
+if ! [[ "$MULTI_TEST_MAX_TOKENS" =~ ^[0-9]+$ ]] || [ "$MULTI_TEST_MAX_TOKENS" -eq 0 ]; then
+    log_error "--multi-test-max-tokens 必须是大于 0 的整数"
+    exit 1
+fi
 
 load_env_file "$SCRIPT_DIR/env.sh"
 if [ -n "$PRESET_FILE_INPUT" ]; then
@@ -227,6 +256,7 @@ backup_old_logs() {
         "$LOG_DIR"/run_vllm_test_*.log
         "$LOG_DIR"/test.log
         "$LOG_DIR"/test_*.log
+        "$SCRIPT_DIR"/vllm_task_*.log
         "$LOG_DIR"/bench.log
         "$LOG_DIR"/bench_*.log
         "$LOG_DIR"/mpi_cleanup.log
@@ -295,6 +325,12 @@ copy_current_logs() {
     if [ -f "$MP_SERVE_LOG" ]; then
         cp -p "$MP_SERVE_LOG" "$dest_dir/"
     fi
+
+    shopt -s nullglob
+    for file in "$SCRIPT_DIR"/vllm_task_*.log; do
+        cp -p "$file" "$dest_dir/"
+    done
+    shopt -u nullglob
 }
 
 archive_run_logs() {
@@ -473,6 +509,29 @@ start_mpi_launcher() {
     log_info "MPI 日志: $MPI_WORKERS_LOG"
 }
 
+cat_multi_test_results() {
+    local files=()
+    local file
+
+    shopt -s nullglob
+    files=("$SCRIPT_DIR"/vllm_task_*.log)
+    shopt -u nullglob
+
+    if [ "${#files[@]}" -eq 0 ]; then
+        log_warning "未找到 multi test 结果日志: $SCRIPT_DIR/vllm_task_*.log"
+        return
+    fi
+
+    echo ""
+    log_info "Multi test 结果汇总:"
+    for file in "${files[@]}"; do
+        echo ""
+        echo "===== ${file} ====="
+        cat "$file"
+        echo ""
+    done
+}
+
 run_test() {
     TEST_EXIT_CODE=0
 
@@ -491,6 +550,16 @@ run_test() {
         log_info "模型回答:"
         extract_model_reply "$test_output"
         log_info "测试日志: $TEST_LOG"
+    elif [ "$TEST_MODE" = "multi" ]; then
+        log_info "运行并发 multi test..."
+        if python "$SCRIPT_DIR/serve_test/test_multl_stream.py" "${ENV_ARGS[@]}" --max-tokens "$MULTI_TEST_MAX_TOKENS" > "$TEST_LOG" 2>&1; then
+            log_success "Multi test 完成"
+        else
+            TEST_EXIT_CODE=$?
+            log_warning "Multi test 退出码: $TEST_EXIT_CODE"
+        fi
+        log_info "测试日志: $TEST_LOG"
+        cat_multi_test_results
     elif [ "$TEST_MODE" = "bench" ]; then
         log_info "运行 bench..."
         if bash "$SCRIPT_DIR/serve_test/serve_bench_template.sh" "${ENV_ARGS[@]}" > "$BENCH_LOG" 2>&1; then
@@ -553,7 +622,7 @@ if [ "$LAUNCHER" = "mpi" ]; then
 else
     log_info "  Serve: $MP_SERVE_LOG"
 fi
-if [ "$TEST_MODE" = "test" ]; then
+if [ "$TEST_MODE" = "test" ] || [ "$TEST_MODE" = "multi" ]; then
     log_info "  Test:  $TEST_LOG"
 elif [ "$TEST_MODE" = "bench" ]; then
     log_info "  Bench: $BENCH_LOG"

@@ -85,7 +85,6 @@ case ${PD_MODE} in
         echo "[VLLM-XCPU] PD Mode: PREFILL - Optimizing for TTFT"
 
         # Prefill 模式自动启用 enforce-eager 和专家并行
-        export USER_VLLM_EAGER_OR_NOT="--enforce-eager"
         _VLLM_OPTIONAL_ARGS+=" --enable-expert-parallel"
 
         # _VLLM_OPTIONAL_ARGS+=" --enable-eplb"
@@ -99,7 +98,7 @@ case ${PD_MODE} in
         MAX_BATCHED_TOKENS="${USER_VLLM_MAX_NUM_BATCHED_TOKENS:-4096}"
         export USER_VLLM_MAX_NUM_BATCHED_TOKENS=${MAX_BATCHED_TOKENS}
         export VLLM_MOE_DP_CHUNK_SIZE=${MAX_BATCHED_TOKENS}
-        export VLLM_ENABLE_MOE_DP_CHUNK=1
+        export VLLM_ENABLE_MOE_DP_CHUNK=0
         ;;
 
     "DECODE" | "MIXED")
