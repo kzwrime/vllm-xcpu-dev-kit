@@ -169,7 +169,8 @@ PROMPTS = [
         "请保持语言风格专业、客观且逻辑严密。"
     ),
 ]
-PROMPTS = PROMPTS[:-1]  # 最后一条过长的测试用例暂时不执行
+if env_vars.get("VLLM_PD_MULTI_INCLUDE_LONG") != "1":
+    PROMPTS = PROMPTS[:-1]  # 最后一条过长的测试用例暂时不执行
 
 # 用于记录各个任务的状态，方便在屏幕上更新 tips
 task_states = {}
@@ -273,6 +274,14 @@ async def main():
 
     # 等待监控任务结束
     await monitor_task
+
+    failed_tasks = [
+        task_id for task_id, state in task_states.items()
+        if state.get("status") == "错误"
+    ]
+    if failed_tasks:
+        print(f"[错误] 以下任务失败: {failed_tasks}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
