@@ -157,6 +157,23 @@ export VLLM_OPTIONAL_ARGS="${VLLM_OPTIONAL_ARGS} --kv-transfer-config <ExampleCo
 
 注意：`VLLM_PD_ROLE`、`VLLM_PD_ROLE_INDEX` 这类变量没有实际消费者，不应作为功能依赖。P/D 的关键配置是 `--kv-transfer-config` 中的 `shared_storage_path`。
 
+LMCache 作为 P/D KV backend 的调研和分层落地建议见
+`PD_LMCACHE_INVESTIGATION.md`。当前默认 backend 仍是 `ExampleConnector`。
+Mooncake 直接 P/D 传输路线见 `PD_MOONCAKE_INVESTIGATION.md`。
+
+使用 Mooncake non-CUDA/TCP backend：
+
+```bash
+USER_VLLM_PD_KV_BACKEND=mooncake \
+USER_VLLM_PD_MOONCAKE_PROTOCOL=tcp \
+./run_vllm_test.sh --pd -e <preset.sh>
+```
+
+当前已通过 `Qwen3-0.6B` 单请求、`Qwen3-0.6B --multi-test` 并发请求、
+以及 `Qwen3-30B-A3B dp2/tp2/ep` MPI/MoE 单请求。`Qwen3.5-0.8B`
+hybrid full-attention + linear-attention 仍需要 group-aware Mooncake metadata，
+不能只把 HMA 多组 block ids 展平。
+
 ### P/D + mpi 的手工展开
 
 以 `1P x 1D` 为例，启动日志会打印实际路径和端口。假设生成：
