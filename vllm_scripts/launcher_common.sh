@@ -134,6 +134,11 @@ launcher_prepare_runtime() {
     USER_VLLM_MPC_SIZE="${USER_VLLM_MPC_SIZE:-$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE))}"
     MPI_COUNT=$((USER_VLLM_DATA_PARALLEL_SIZE * USER_VLLM_MPC_SIZE))
 
+    if [[ " ${VLLM_OPTIONAL_ARGS:-} " == *" --language-model-only"* ]] && [[ "${VLLM_XCPU_DISABLE_TORCHVISION:-0}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
+        export PYTHONPATH="$SCRIPT_DIR/python_patches${PYTHONPATH:+:$PYTHONPATH}"
+        log_info "已为 language-model-only 启用 torchvision 运行时屏蔽"
+    fi
+
     if [ "$LAUNCHER" = "auto" ]; then
         if [ "${VLLM_CPU_USE_MPI:-0}" = "1" ] || [ "${VLLM_USE_MPI_COORD:-0}" = "1" ] || [ -n "${USER_VLLM_MP_RPC_WORKER_PER_NODE:-}" ]; then
             LAUNCHER="mpi"
