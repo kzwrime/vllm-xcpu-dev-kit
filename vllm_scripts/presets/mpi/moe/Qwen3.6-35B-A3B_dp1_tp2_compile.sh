@@ -23,7 +23,7 @@ export VLLM_USE_MPI_COORD=1
 export VLLM_CPU_USE_MPI=1
 export VLLM_ALL2ALL_BACKEND_XCPU="all_to_all_single"
 
-_VLLM_OPTIONAL_ARGS+=" --reasoning-parser qwen3"
+_VLLM_OPTIONAL_ARGS+=" --reasoning-parser qwen3 --language-model-only"
 export VLLM_OPTIONAL_ARGS="${_VLLM_OPTIONAL_ARGS}"
 
 # 自动获取预设名称和目录
