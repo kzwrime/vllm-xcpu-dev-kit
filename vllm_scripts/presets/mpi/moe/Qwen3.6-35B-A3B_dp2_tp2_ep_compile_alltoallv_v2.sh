@@ -24,6 +24,7 @@ export VLLM_CPU_USE_MPI=1
 export VLLM_ALL2ALL_BACKEND_XCPU="mpi_alltoallv"
 export VLLM_MPI_ALLTOALLV_VERSION="v2"
 
+export VLLM_XCPU_GDN_DECODE_ONLY_COMPILE=1
 _VLLM_OPTIONAL_ARGS+=" --reasoning-parser qwen3 --language-model-only"
 export VLLM_OPTIONAL_ARGS="${_VLLM_OPTIONAL_ARGS}"
 

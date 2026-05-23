@@ -3,4 +3,5 @@ user_env.sh
 logs
 dump_shape
 torch_compile*
+vllm_profile*
 tmp

@@ -19,6 +19,7 @@ export USER_VLLM_TP_SIZE=2
 export USER_VLLM_PP_SIZE=1
 export USER_VLLM_MPC_SIZE=$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE))
 
+export VLLM_XCPU_GDN_DECODE_ONLY_COMPILE=1
 _VLLM_OPTIONAL_ARGS+=" --reasoning-parser qwen3 --language-model-only"
 export VLLM_OPTIONAL_ARGS="${_VLLM_OPTIONAL_ARGS}"
 
