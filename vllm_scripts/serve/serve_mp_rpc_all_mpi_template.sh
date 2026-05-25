@@ -26,7 +26,9 @@ SIZE="$MPI_SIZE_DETECT"
 if [ "${VLLM_USE_MPI_COORD:-0}" == "1" ]; then
     COORD_PORT=${VLLM_MPI_COORD_PORT:-15555}
     COORD_SCRIPT="$SCRIPT_DIR/mpi_tools/mpi_coord_setup.py"
-    export VLLM_MPI_ENV_EXPORT_FILE="logs/vllm_mpi_env_rank_${RANK}.sh"
+    COORD_TMP_DIR="$SCRIPT_DIR/logs/tmp"
+    mkdir -p "$COORD_TMP_DIR"
+    export VLLM_MPI_ENV_EXPORT_FILE="$COORD_TMP_DIR/vllm_mpi_env_rank_${RANK}.sh"
 
     echo "--- 🔗 MPI Coordination (Rank $RANK) ---"
 

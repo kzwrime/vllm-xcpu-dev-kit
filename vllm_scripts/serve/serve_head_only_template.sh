@@ -23,8 +23,10 @@ if [ "${VLLM_USE_MPI_COORD:-0}" == "1" ]; then
     COORD_PORT=${VLLM_MPI_COORD_PORT:-15555}
     COORD_SCRIPT="$SCRIPT_DIR/mpi_tools/mpi_coord_setup.py"
     COORD_LOG="logs/coord_server.log"
+    COORD_TMP_DIR="$SCRIPT_DIR/logs/tmp"
 
     mkdir -p "$(dirname "$COORD_LOG")"
+    mkdir -p "$COORD_TMP_DIR"
 
     echo ""
     echo "--- 🔗 MPI Coordination Server ---"
@@ -35,7 +37,7 @@ if [ "${VLLM_USE_MPI_COORD:-0}" == "1" ]; then
     EXPECTED_RANKS=${VLLM_MPI_COORD_EXPECTED_RANKS:-$((USER_VLLM_DATA_PARALLEL_SIZE * USER_VLLM_MPC_SIZE))}
 
     # Start coordination server (runs until all workers connect)
-    export VLLM_MPI_ENV_EXPORT_FILE="${VLLM_MPI_ENV_EXPORT_FILE:-/tmp/vllm_mpi_env_server.sh}"
+    export VLLM_MPI_ENV_EXPORT_FILE="${VLLM_MPI_ENV_EXPORT_FILE:-$COORD_TMP_DIR/vllm_mpi_env_server.sh}"
     python3 "$COORD_SCRIPT" --server \
         --port $COORD_PORT \
         --expected-ranks $EXPECTED_RANKS \
