@@ -33,6 +33,10 @@ export VLLM_USE_XCPU_LINEAR=1
 # export VLLM_CPU_MOCK_LINEAR=1
 export VLLM_CPU_USE_MPI=0
 export TORCHINDUCTOR_CPP_WRAPPER=1
+# 默认关闭，保持 Inductor pointwise C++ fusion 性能。
+# 设为 1 时，mcpu Inductor 将 pointwise fallback 成 aoti_torch_mcpu_* wrapper，
+# 避免生成直接访问 Tensor data_ptr 的 cpp_fused_* C++ loop。
+export TORCH_MCPU_INDUCTOR_FALLBACK_BY_DEFAULT=0
 export VLLM_DISABLE_TQDM_AND_MONITOR=1
 export VLLM_SHARED_EXPERT_DISABLE_TP=1
 export VLLM_USE_XCPU_TOPK_SOFTMAX=1
