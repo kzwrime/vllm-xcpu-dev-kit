@@ -6,7 +6,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../"
 
 # 在加载模板前设置独立配置项
-export PD_MODE="MIXED"
+export PD_MODE="NOT_MOE"
 
 # 加载基础模板配置
 source "$SCRIPT_DIR/user_env_template.sh"
