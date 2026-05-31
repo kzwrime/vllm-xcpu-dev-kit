@@ -103,6 +103,7 @@ case ${PD_MODE} in
         export USER_VLLM_MAX_NUM_BATCHED_TOKENS=${MAX_BATCHED_TOKENS}
         export VLLM_MOE_DP_CHUNK_SIZE=${MAX_BATCHED_TOKENS}
         export VLLM_ENABLE_MOE_DP_CHUNK=0
+        export VLLM_SHARED_EXPERT_DISABLE_TP=1
         ;;
 
     "DECODE" | "MIXED")
@@ -125,6 +126,7 @@ case ${PD_MODE} in
         export USER_VLLM_MAX_NUM_BATCHED_TOKENS=${MAX_BATCHED_TOKENS}
         export VLLM_MOE_DP_CHUNK_SIZE=${MAX_BATCHED_TOKENS}
         export VLLM_ENABLE_MOE_DP_CHUNK=0 # torch.compile 目前不兼容 MOE_DP_CHUNK
+        export VLLM_SHARED_EXPERT_DISABLE_TP=1
         
         # 提示：调试时可开启 --enforce-eager，生产环境建议注释掉以利用 torch.compile 优化
         # _VLLM_OPTIONAL_ARGS+=" --enforce-eager"
@@ -133,6 +135,7 @@ case ${PD_MODE} in
     "NOT_MOE")
         ### Dense 模型，不做任何额外设置 ###
         export USER_VLLM_MAX_NUM_BATCHED_TOKENS="${USER_VLLM_MAX_NUM_BATCHED_TOKENS:-256}"
+        export VLLM_SHARED_EXPERT_DISABLE_TP=0
 
         ;;
 
