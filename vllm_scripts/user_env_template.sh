@@ -169,8 +169,8 @@ export TORCHINDUCTOR_DIRECT_DISPATCH_PREFIXES="torch_xcpu,torch_mpi_ext.all_redu
 
 _USER_ENV_TEMPLATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _TORCH_XCPU_AOTI_ENV="$(
-AOTI_EXTRA_CFLAGS="${AOTI_EXTRA_CFLAGS-}" \
-AOTI_EXTRA_LDFLAGS="${AOTI_EXTRA_LDFLAGS-}" \
+AOTI_EXTRA_CFLAGS= \
+AOTI_EXTRA_LDFLAGS= \
 python "${_USER_ENV_TEMPLATE_DIR}/torch_xcpu_aoti_env.py"
 )" || exit 1
 eval "${_TORCH_XCPU_AOTI_ENV}"
