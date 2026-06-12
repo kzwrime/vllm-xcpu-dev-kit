@@ -81,6 +81,13 @@ _VLLM_OPTIONAL_ARGS+=' --profiler-config {"profiler":"torch","torch_profiler_dir
 # Case3: profiler with json without stack
 # _VLLM_OPTIONAL_ARGS+=' --profiler-config {"profiler":"torch","torch_profiler_dir":"./vllm_profile","torch_profiler_record_shapes":true,"torch_profiler_with_memory":true,"torch_profiler_with_stack":false,"torch_profiler_with_flops":true,"torch_profiler_use_gzip":true,"torch_profiler_dump_cuda_time_total":true,"torch_profiler_no_trace_file":false}'
 
+# MTP 开启方式:
+# 1. 使用 xxx_mtp.sh 类 model preset，如 presets/serial/Qwen3.5-0.8B_dp1_tp1_eager_mtp.sh
+# 2. 使用原 model preset 时，需要在本文件中打开下面 --speculative-config 的 MTP 配置
+#    注意：同时开启 MTP 和 torch compile 时，需要额外在 model preset 中关闭 VLLM_XCPU_GDN_DECODE_ONLY_COMPILE 选项
+
+# _VLLM_OPTIONAL_ARGS+=' --speculative-config {"method":"mtp","num_speculative_tokens":1}'
+
 # 根据 PD_MODE 自动设置配置
 case ${PD_MODE} in
     "PREFILL")
