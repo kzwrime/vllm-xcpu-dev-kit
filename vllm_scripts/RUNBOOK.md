@@ -160,6 +160,10 @@ export VLLM_OPTIONAL_ARGS="${VLLM_OPTIONAL_ARGS} --kv-transfer-config <ExampleCo
 LMCache 作为 P/D KV backend 的调研和分层落地建议见
 `PD_LMCACHE_INVESTIGATION.md`。当前默认 backend 仍是 `ExampleConnector`。
 Mooncake 直接 P/D 传输路线见 `PD_MOONCAKE_INVESTIGATION.md`。
+Mooncake CPU/SSD 持久化和 standalone store 拓扑见
+`PD_MOONCAKE_PERSISTENCE.md`。该文档的“配置出处”部分列出了官方 vLLM
+`KVTransferConfig` API、MooncakeStoreConnector guide、上游
+`deps/vllm-main` 实现和 Mooncake master/client 源码对应关系。
 
 使用 Mooncake non-CUDA/TCP backend：
 
@@ -168,6 +172,12 @@ USER_VLLM_PD_KV_BACKEND=mooncake \
 USER_VLLM_PD_MOONCAKE_PROTOCOL=tcp \
 ./run_vllm_test.sh --pd -e <preset.sh>
 ```
+
+注意：这个入口使用的是 `MooncakeConnector`，只验证 prefill/decode 之间的
+点对点 KV transfer。它不启动 Mooncake Store，也不提供纯 CPU 内存池或 SSD
+持久化。要让 prefill/decode 以外的节点作为 CPU/SSD KV pool，需要
+`MooncakeStoreConnector` + `mooncake_master` + 外部 `mooncake_client`
+的 `standalone-store` 拓扑；当前本地 `vllm/` 尚未移植该 connector。
 
 当前已通过 `Qwen3-0.6B` 单请求、`Qwen3-0.6B --multi-test` 并发请求、
 以及 `Qwen3-30B-A3B dp2/tp2/ep` MPI/MoE 单请求。`Qwen3.5-0.8B`
