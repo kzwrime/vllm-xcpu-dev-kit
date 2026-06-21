@@ -215,17 +215,35 @@ launcher_wait_for_http_service() {
 launcher_collect_error_details() {
     local error_details=""
     local files=()
+    local file
 
     [ -f "${LAUNCH_LOG:-}" ] && files+=("$LAUNCH_LOG")
     [ -f "${HEAD_SERVE_LOG:-}" ] && files+=("$HEAD_SERVE_LOG")
     [ -f "${MPI_WORKERS_LOG:-}" ] && files+=("$MPI_WORKERS_LOG")
     [ -f "${MP_SERVE_LOG:-}" ] && files+=("$MP_SERVE_LOG")
+    if [ -n "${PD_ROOT:-}" ] && [ -d "$PD_ROOT" ]; then
+        while IFS= read -r file; do
+            files+=("$file")
+        done < <(find "$PD_ROOT" -type f \( -name '*.log' -o -name 'vllm_*_log*.txt' \) -print 2>/dev/null)
+    fi
 
     if [ "${#files[@]}" -gt 0 ]; then
-        error_details=$(grep -HinE "(^|[[:space:]])(ERROR|CRITICAL|FATAL)([[:space:]]|$)|Traceback \(most recent call last\)|RuntimeError:|AssertionError:|ValueError:|KeyError:|TypeError:|ImportError:|ModuleNotFoundError:|Segmentation fault" "${files[@]}" 2>/dev/null | head -n 5 || true)
+        error_details=$(grep -HinE "(^|[^[:alnum:]_])(ERROR|CRITICAL|FATAL)([^[:alnum:]_]|$)|Traceback \(most recent call last\)|RuntimeError:|AssertionError:|ValueError:|KeyError:|TypeError:|ImportError:|ModuleNotFoundError:|Segmentation fault|Fatal Python error|terminate called after throwing|c10::Error|Exception raised from|ServerDisconnectedError|ConnectionRefusedError|Connection reset by peer|Aborted" "${files[@]}" 2>/dev/null | head -n 8 || true)
     fi
 
     printf '%s' "$error_details"
+}
+
+launcher_print_error_details() {
+    local error_detail
+    error_detail="$(launcher_collect_error_details)"
+    [ -n "$error_detail" ] || return 1
+
+    log_error "检测到异常中断"
+    echo "$error_detail" | while read -r line; do
+        [ -n "$line" ] && log_error " -> $line"
+    done
+    return 0
 }
 
 launcher_wait_for_log_startup() {
@@ -249,14 +267,9 @@ launcher_wait_for_log_startup() {
             return 0
         fi
 
-        local error_detail
-        error_detail="$(launcher_collect_error_details)"
-        if [ -n "$error_detail" ]; then
+        if [ -n "$(launcher_collect_error_details)" ]; then
             echo ""
-            log_error "检测到异常中断"
-            echo "$error_detail" | while read -r line; do
-                [ -n "$line" ] && log_error " -> $line"
-            done
+            launcher_print_error_details
             return 1
         fi
 

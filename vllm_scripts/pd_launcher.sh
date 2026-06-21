@@ -191,6 +191,12 @@ pd_wait_for_http_service() {
             return 0
         fi
 
+        if [ -n "$(launcher_collect_error_details)" ]; then
+            echo ""
+            launcher_print_error_details
+            return 1
+        fi
+
         echo -n "."
         sleep "$check_interval"
         wait_time=$((wait_time + check_interval))

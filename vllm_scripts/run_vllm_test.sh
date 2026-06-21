@@ -362,7 +362,18 @@ launcher_wait_for_service
 if [ "$DISAGG_PREFILL" -eq 1 ] && [ "$TEST_MODE" = "multi" ]; then
     export VLLM_PD_MULTI_INCLUDE_LONG=1
 fi
-run_test
+if run_test; then
+    :
+else
+    test_rc=$?
+    launcher_print_error_details || true
+    exit "$test_rc"
+fi
+if [ "$DISAGG_PREFILL" -eq 1 ] && [ "$TEST_MODE" != "none" ]; then
+    if launcher_print_error_details; then
+        exit 1
+    fi
+fi
 pd_validate_transfer
 
 echo ""
