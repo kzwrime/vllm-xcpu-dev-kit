@@ -11,6 +11,9 @@ VLLM_TARGET_DEVICE=cpu python setup.py develop
 pip install pre-commit
 pre-commit install
 
+cd ${PROJ_HOME}/torch_mcpu
+./scripts/install-git-hooks.sh
+./build.sh
 
 cd ${PROJ_HOME}/torch_mpi_ext
 CXX=mpicxx pip install --no-build-isolation .
