@@ -61,6 +61,7 @@ load_user_config {shlex.quote(vllm_scripts_dir)}
 """
 
     bash_command += f"""
+apply_runtime_overrides
 # 输出所有环境变量
 env
 """

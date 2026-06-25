@@ -20,6 +20,9 @@ cd vllm_scripts
 # 只启动，不测试；用于手动调试
 ./run_vllm_test.sh --no-test -e presets/serial/Qwen3-0.6B_dp1_tp1_eager.sh --launcher mp
 
+# 目标端口被占用时，显式允许自动选择后续空闲端口
+./run_vllm_test.sh -e presets/serial/Qwen3-0.6B_dp1_tp1_eager.sh --launcher mp --auto-port
+
 # MPI 启动 + 测试
 ./run_vllm_test.sh -e presets/mpi/moe/Qwen3-30B-A3B_dp2_tp2_ep_eager_alltoallv_v2.sh
 
@@ -28,6 +31,68 @@ cd vllm_scripts
 ```
 
 `run_vllm_test.sh` 的职责是编排：加载 preset、启动服务、等待就绪、执行测试、归档日志、清理进程。真正的底层启动仍然由 `serve/` 和 `serve_test/` 下的脚本完成。
+
+## 端口与就绪判定
+
+非 P/D 的 `mp`/`mpi` wrapper 默认使用严格端口策略：
+
+```bash
+./run_vllm_test.sh -e <preset.sh> --launcher mp
+./run_vllm_test.sh -e <preset.sh> --launcher mpi
+```
+
+如果本次运行需要使用的端口已被占用，脚本会在启动 vLLM 前失败返回非 0，而不是复用端口上的旧服务。这可以避免请求误打到历史残留服务，并出现类似当前模型不存在的 404：
+
+```json
+{"error":{"message":"The model `<model>` does not exist.","type":"NotFoundError","code":404}}
+```
+
+非 P/D `mp` 会检查：
+
+```text
+USER_VLLM_PORT
+```
+
+非 P/D `mpi` 会检查：
+
+```text
+USER_VLLM_PORT
+USER_VLLM_DATA_PARALLEL_RPC_PORT
+VLLM_MPI_COORD_PORT            # 仅 VLLM_USE_MPI_COORD=1 时
+VLLM_MP_RPC_READY_PORT_BASE    # 按 MPI_COUNT + 4 检查连续端口段
+```
+
+确实希望开发调试时自动避开占用端口，需要显式开启：
+
+```bash
+./run_vllm_test.sh -e <preset.sh> --launcher mp --auto-port
+
+# 等价环境变量
+RUN_VLLM_TEST_AUTO_PORT=1 ./run_vllm_test.sh -e <preset.sh> --launcher mp
+```
+
+`--auto-port` 会从各自配置的端口开始向后查找空闲端口，并避免本次运行内的端口段互相重叠。实际端口会写入运行时 override：
+
+```text
+RUN_VLLM_EFFECTIVE_PORT
+RUN_VLLM_EFFECTIVE_DATA_PARALLEL_RPC_PORT
+RUN_VLLM_EFFECTIVE_MPI_COORD_PORT
+RUN_VLLM_EFFECTIVE_MP_RPC_READY_PORT_BASE
+```
+
+因此后续 `serve/` 和 `serve_test/` 下的脚本即使重新加载 preset，也会继续使用 wrapper 选择的实际端口。
+
+就绪判定分两层：
+
+1. 先等待启动日志出现服务启动成功信号。
+2. 再访问 `GET /v1/models`，并要求返回结果中包含当前 `USER_VLLM_MODEL`。
+
+因此端口上即使已有一个可访问的 OpenAI API 服务，只要模型 id 不匹配，也不会被当成本次启动成功。
+
+请求测试使用 `curl --fail-with-body`。HTTP 4xx/5xx 会导致测试失败返回非 0，同时保留响应体便于排查。
+
+P/D 模式不使用上述非 P/D 端口预检查；它由 `pd_launcher.sh` 为 prefill、
+decode、proxy、DP RPC、MPI coord、MP RPC ready 等端口分别寻找空闲端口。
 
 ## 非 P/D：mp 模式展开
 
@@ -299,5 +364,7 @@ logs/failed/<run-id>/
 1. 先用统一入口复现问题，记录 preset、launcher、端口和日志目录。
 2. 如果是非 P/D mpi 问题，按“三终端展开”直接运行 head、worker、test。
 3. 如果是 P/D 问题，先用 `--pd --no-test` 生成 overlay preset，再按 P/D 展开命令手工启动。
-4. 端口冲突时优先看启动日志打印的实际端口；P/D 会为 HTTP、DP RPC、MPI coord、MP RPC ready 分别分配端口。
-5. decode 侧是否命中外部 KV cache，以 decode 日志中的 `External Cache Hit` 为准。
+4. 非 P/D 端口冲突默认会提前失败；需要自动避让时加 `--auto-port`，并以启动日志打印的 OpenAI API 端口为准。
+5. 如果测试返回 404 model not found，先确认请求命中的端口是否是本次启动的端口，再看 `/v1/models` 中的模型 id。
+6. P/D 会为 HTTP、DP RPC、MPI coord、MP RPC ready 分别分配端口，端口问题优先看 `logs/pd/<run-id>/` 下生成的 overlay preset 和启动日志。
+7. decode 侧是否命中外部 KV cache，以 decode 日志中的 `External Cache Hit` 为准。

@@ -52,6 +52,184 @@ make_unique_dir() {
     printf '%s' "$dir"
 }
 
+launcher_bool_enabled() {
+    [[ "${1:-0}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]
+}
+
+launcher_port_is_free() {
+    local port="$1"
+    ! timeout 1 bash -c "cat < /dev/null > /dev/tcp/127.0.0.1/${port}" >/dev/null 2>&1
+}
+
+launcher_port_range_is_free() {
+    local start="$1"
+    local count="$2"
+    local port
+
+    for ((port = start; port < start + count; port++)); do
+        launcher_port_is_free "$port" || return 1
+    done
+    return 0
+}
+
+launcher_reserved_port_ranges=()
+launcher_reserved_port_labels=()
+
+launcher_port_range_is_reserved() {
+    local start="$1"
+    local count="$2"
+    local end=$((start + count - 1))
+    local range
+    local range_start
+    local range_count
+    local range_end
+
+    for range in "${launcher_reserved_port_ranges[@]}"; do
+        range_start="${range%%:*}"
+        range_count="${range##*:}"
+        range_end=$((range_start + range_count - 1))
+        if [ "$start" -le "$range_end" ] && [ "$range_start" -le "$end" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+launcher_port_range_is_available() {
+    local start="$1"
+    local count="$2"
+
+    launcher_port_range_is_free "$start" "$count" || return 1
+    ! launcher_port_range_is_reserved "$start" "$count"
+}
+
+launcher_find_free_port_range() {
+    local start="$1"
+    local count="$2"
+
+    while ! launcher_port_range_is_available "$start" "$count"; do
+        start=$((start + 1))
+    done
+    printf '%s' "$start"
+}
+
+launcher_reserve_port_range() {
+    local label="$1"
+    local start="$2"
+    local count="$3"
+
+    launcher_reserved_port_labels+=("$label")
+    launcher_reserved_port_ranges+=("${start}:${count}")
+}
+
+launcher_format_port_range() {
+    local start="$1"
+    local count="$2"
+
+    if [ "$count" -eq 1 ]; then
+        printf '%s' "$start"
+    else
+        printf '%s-%s' "$start" "$((start + count - 1))"
+    fi
+}
+
+launcher_prepare_port_assignment() {
+    local label="$1"
+    local value_var="$2"
+    local default_value="$3"
+    local count="$4"
+    local effective_var="$5"
+    local requested_port="${!value_var:-$default_value}"
+    local selected_port
+    local requested_range
+
+    if [ -z "$requested_port" ]; then
+        log_error "${label} 端口未设置"
+        return 1
+    fi
+    if ! [[ "$requested_port" =~ ^[0-9]+$ ]] || [ "$requested_port" -le 0 ]; then
+        log_error "${label} 端口非法: ${requested_port}"
+        return 1
+    fi
+
+    requested_range="$(launcher_format_port_range "$requested_port" "$count")"
+
+    if launcher_bool_enabled "${RUN_VLLM_TEST_AUTO_PORT:-0}"; then
+        selected_port="$(launcher_find_free_port_range "$requested_port" "$count")"
+        if [ "$selected_port" != "$requested_port" ]; then
+            log_warning "${label} 端口 ${requested_range} 不可用，自动改用 $(launcher_format_port_range "$selected_port" "$count")"
+        fi
+        export "$value_var=$selected_port"
+        export "$effective_var=$selected_port"
+        launcher_reserve_port_range "$label" "$selected_port" "$count"
+        return 0
+    fi
+
+    if ! launcher_port_range_is_free "$requested_port" "$count"; then
+        log_error "${label} 端口 ${requested_range} 已被占用；默认严格模式下不会复用或自动改端口"
+        log_error "请清理占用进程，或显式使用 --auto-port / RUN_VLLM_TEST_AUTO_PORT=1"
+        return 1
+    fi
+    if launcher_port_range_is_reserved "$requested_port" "$count"; then
+        log_error "${label} 端口 ${requested_range} 与本次运行的其他端口冲突"
+        log_error "请调整配置，或显式使用 --auto-port / RUN_VLLM_TEST_AUTO_PORT=1"
+        return 1
+    fi
+
+    launcher_reserve_port_range "$label" "$requested_port" "$count"
+}
+
+launcher_prepare_non_pd_ports() {
+    local ready_port_count
+
+    if [ "${DISAGG_PREFILL:-0}" -eq 1 ]; then
+        return 0
+    fi
+
+    launcher_reserved_port_ranges=()
+    launcher_reserved_port_labels=()
+
+    launcher_prepare_port_assignment "OpenAI API" USER_VLLM_PORT "" 1 RUN_VLLM_EFFECTIVE_PORT || return 1
+
+    if [ "$LAUNCHER" != "mpi" ]; then
+        return 0
+    fi
+
+    launcher_prepare_port_assignment "DP RPC" USER_VLLM_DATA_PARALLEL_RPC_PORT 13345 1 RUN_VLLM_EFFECTIVE_DATA_PARALLEL_RPC_PORT || return 1
+
+    if [ "${VLLM_USE_MPI_COORD:-0}" = "1" ]; then
+        launcher_prepare_port_assignment "MPI coord" VLLM_MPI_COORD_PORT 15555 1 RUN_VLLM_EFFECTIVE_MPI_COORD_PORT || return 1
+    fi
+
+    ready_port_count=$((MPI_COUNT + 4))
+    launcher_prepare_port_assignment "MP RPC ready" VLLM_MP_RPC_READY_PORT_BASE 28888 "$ready_port_count" RUN_VLLM_EFFECTIVE_MP_RPC_READY_PORT_BASE || return 1
+}
+
+launcher_models_contains_model() {
+    local models_response="$1"
+    local model="$2"
+
+    if command -v jq >/dev/null 2>&1; then
+        printf '%s' "$models_response" | jq -e --arg model "$model" 'any(.data[]?; .id == $model)' >/dev/null 2>&1
+        return
+    fi
+
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c '
+import json
+import sys
+
+models_response = sys.argv[1]
+model = sys.argv[2]
+data = json.loads(models_response)
+sys.exit(0 if any(item.get("id") == model for item in data.get("data", [])) else 1)
+' "$models_response" "$model" >/dev/null 2>&1
+        return
+    fi
+
+    printf '%s' "$models_response" | grep -F "\"id\":\"${model}\"" >/dev/null 2>&1
+}
+
 launcher_common_init() {
     if [ ! -f "$COMMON_SH" ]; then
         log_error "Could not find $COMMON_SH"
@@ -147,6 +325,8 @@ launcher_prepare_runtime() {
         fi
     fi
 
+    launcher_prepare_non_pd_ports || return 1
+
     PIDS=()
     source "$PD_LAUNCHER_SH"
 }
@@ -192,13 +372,16 @@ launcher_wait_for_http_service() {
     local max_wait="${VLLM_TEST_MAX_WAIT:-300}"
     local wait_time=0
     local check_interval=5
+    local models_response
 
     log_info "等待 $name 服务启动..."
     while [ "$wait_time" -lt "$max_wait" ]; do
-        if curl --silent --fail "http://127.0.0.1:${port}/v1/models" >/dev/null 2>&1; then
-            echo ""
-            log_success "$name 服务启动成功"
-            return 0
+        if models_response=$(curl --silent --fail "http://127.0.0.1:${port}/v1/models" 2>/dev/null); then
+            if launcher_models_contains_model "$models_response" "$USER_VLLM_MODEL"; then
+                echo ""
+                log_success "$name API 服务 URL 服务就绪"
+                return 0
+            fi
         fi
 
         echo -n "."
@@ -208,6 +391,10 @@ launcher_wait_for_http_service() {
 
     echo ""
     log_error "$name 等待超时 (${max_wait} 秒)"
+    if [ -n "$models_response" ]; then
+        log_error "端口 ${port} 上的 /v1/models 未包含当前模型: ${USER_VLLM_MODEL}"
+        printf '%s\n' "$models_response"
+    fi
     [ -f "$log_file" ] && tail -60 "$log_file"
     return 1
 }
@@ -336,6 +523,7 @@ launcher_wait_for_service() {
         return 0
     fi
     launcher_wait_for_log_startup
+    launcher_wait_for_api
 }
 
 launcher_wait_for_api() {
@@ -359,6 +547,11 @@ launcher_print_service_locations() {
         log_info "  OpenAI API: http://127.0.0.1:${USER_VLLM_PORT}"
         log_info "  手动测试 preset: $ORIG_CONFIG_FILE"
         if [ "$LAUNCHER" = "mpi" ]; then
+            log_info "  DP RPC: ${USER_VLLM_DATA_PARALLEL_RPC_PORT}"
+            if [ "${VLLM_USE_MPI_COORD:-0}" = "1" ]; then
+                log_info "  MPI coord: ${VLLM_MPI_COORD_PORT}"
+            fi
+            log_info "  MP RPC ready: $(launcher_format_port_range "${VLLM_MP_RPC_READY_PORT_BASE:-28888}" "$((MPI_COUNT + 4))")"
             log_info "  Head: $HEAD_SERVE_LOG"
             log_info "  MPI:  $MPI_WORKERS_LOG"
         else
