@@ -257,3 +257,6 @@ __marimo__/
 **/vllm_profile
 **/logs
 tmp
+
+# Release artifacts
+.release/publish/
