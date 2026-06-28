@@ -37,11 +37,13 @@ export TORCHINDUCTOR_CPP_WRAPPER=1
 # 设为 1 时，mcpu Inductor 将 pointwise fallback 成 aoti_torch_mcpu_* wrapper，
 # 避免生成直接访问 Tensor data_ptr 的 cpp_fused_* C++ loop。
 export TORCH_MCPU_INDUCTOR_FALLBACK_BY_DEFAULT=0
-export VLLM_DISABLE_TQDM_AND_MONITOR=1
+export VLLM_DISABLE_TQDM_AND_MONITOR=0
 export VLLM_SHARED_EXPERT_DISABLE_TP=1
 export VLLM_USE_XCPU_TOPK_SOFTMAX=1
 export VLLM_USE_XCPU_TOPK_TOPP_SAMPLER=1
 export VLLM_USE_V2_MODEL_RUNNER=1
+export VLLM_XCPU_USE_FUSED_DOT_SIGMOID_MUL_ADD=0
+export VLLM_XCPU_FUSE_GDN_IN_PROJ_QKVZBA=0
 
 # 开启 mpi_alltoallv v1/v2 时，必须关闭，开启 mpi_alltoallv v3 时，必须打开
 export VLLM_ENABLE_SEQUENCE_PARALLEL_MOE=0
