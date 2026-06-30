@@ -90,6 +90,21 @@ load_user_config() {
     fi
 }
 
+apply_runtime_overrides() {
+    if [ -n "${RUN_VLLM_EFFECTIVE_PORT:-}" ]; then
+        export USER_VLLM_PORT="$RUN_VLLM_EFFECTIVE_PORT"
+    fi
+    if [ -n "${RUN_VLLM_EFFECTIVE_DATA_PARALLEL_RPC_PORT:-}" ]; then
+        export USER_VLLM_DATA_PARALLEL_RPC_PORT="$RUN_VLLM_EFFECTIVE_DATA_PARALLEL_RPC_PORT"
+    fi
+    if [ -n "${RUN_VLLM_EFFECTIVE_MPI_COORD_PORT:-}" ]; then
+        export VLLM_MPI_COORD_PORT="$RUN_VLLM_EFFECTIVE_MPI_COORD_PORT"
+    fi
+    if [ -n "${RUN_VLLM_EFFECTIVE_MP_RPC_READY_PORT_BASE:-}" ]; then
+        export VLLM_MP_RPC_READY_PORT_BASE="$RUN_VLLM_EFFECTIVE_MP_RPC_READY_PORT_BASE"
+    fi
+}
+
 # 函数：解析命令行参数并加载环境配置
 # 用法: parse_args_and_load_env "vllm_scripts目录路径" "$@"
 # 参数: $1 - vllm_scripts 目录的路径 (通常是 $SCRIPT_DIR/..)
@@ -132,5 +147,6 @@ parse_args_and_load_env() {
     else
         load_user_config "$vllm_scripts_dir"
     fi
-}
 
+    apply_runtime_overrides
+}

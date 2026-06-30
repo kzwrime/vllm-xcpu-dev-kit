@@ -33,10 +33,13 @@ usage() {
   --coverage         启动服务后运行 coverage bench，并 dump shapes
   --pd               以 P/D 分离模式运行
   --launcher MODE    强制指定启动方式: auto | mp | mpi
+  --auto-port        如果 USER_VLLM_PORT 被占用，则从该端口开始寻找空闲端口
   -h, --help         显示帮助
 
 环境变量:
   VLLM_TEST_MAX_WAIT   服务启动最大等待时间（秒），默认 300
+  RUN_VLLM_TEST_AUTO_PORT
+                       设为 1/true/yes/on 时等价于 --auto-port
 USAGE
 }
 
@@ -109,6 +112,10 @@ while [ $# -gt 0 ]; do
             ;;
         --launcher=*)
             LAUNCHER="${1#*=}"
+            shift
+            ;;
+        --auto-port)
+            export RUN_VLLM_TEST_AUTO_PORT=1
             shift
             ;;
         -h|--help)

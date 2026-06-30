@@ -36,7 +36,7 @@ git clone https://github.com/kzwrime/torch_mcpu.git
 pip install -r vllm/requirements/build.txt --extra-index-url https://download.pytorch.org/whl/cpu
 pip install -r vllm/requirements/cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu
 pip install setuptools_scm
-pip install modelscope ruff mypy expecttest
+pip install modelscope ruff mypy expecttest setuptools_rust
 pip install clangd==18.1.8.1 clang-format==18.1.3
 
 python -m pip cache remove mpi4py
