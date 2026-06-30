@@ -4,7 +4,7 @@ export VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=1200
 
 export USER_VLLM_LOGGING_LEVEL="DEBUG"
 
-export VLLM_USE_MODELSCOPE=True
+# export VLLM_USE_MODELSCOPE=True
 # export MODELSCOPE_CACHE="/modelscope/hub"
 
 # Set LD_PRELOAD for CPU backend (TCMalloc and Intel OpenMP)
