@@ -43,3 +43,32 @@ python3 scripts/generate_update_notes.py \
 - `.release/repository_versions.json`
 - `docs/release_notes/YYYYMMDD 更新说明.md`
 - 其他发版必要改动
+
+## 打包发布产物
+
+`scripts/package_release_publish.py` 根据 `.release/repository_versions.json`
+中的仓库列表生成发布产物，默认输出到 `.release/publish`：
+
+```bash
+python3 scripts/package_release_publish.py
+```
+
+默认 `--release-version` 为当天的 `YYYYMMDD`，也可以显式指定：
+
+```bash
+python3 scripts/package_release_publish.py --release-version 20260626
+```
+
+打包行为：
+
+- 对清单中的每个仓库，脚本都会从当前分支 clone 一份源码树，写入 `.release/repository_version.json`，再生成 `<name>_<release-version>_<short-head>.tar.gz`。
+- `vllm` 除源码包外，还会生成 patch。patch 范围从清单中记录的上一次 `version` 之后的第一个 commit 到当前 `HEAD`。
+- 脚本会生成 `.release/publish/repository_versions_currently.json`，记录本次发布时各仓库的当前 `HEAD`。
+- `vllm-xcpu-dev-kit` 的清单路径是 `./`，解析后等于主仓库根目录，也会通过 clone 后打包的方式生成 `vllm-xcpu-dev-kit_*.tar.gz`。源码包来自主仓库已提交的 `HEAD`，不会包含工作区里的未跟踪文件或 `.release/publish` 中的本地发布产物。
+
+推荐顺序：
+
+1. 使用 `--generate-template` 生成更新说明和当前版本快照。
+2. 检查并编辑 `docs/release_notes/YYYYMMDD 更新说明.md`。
+3. 在 `.release/repository_versions.json` 仍表示上一次发版基线时运行 `scripts/package_release_publish.py`，否则 `vllm` patch 可能因为没有新增 commit 而失败。
+4. 确认发布产物后运行 `--update-versions` 推进 `.release/repository_versions.json`。
