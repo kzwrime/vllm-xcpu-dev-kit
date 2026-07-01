@@ -549,8 +549,9 @@ def run_case(
         print(f"\n[中断] {case_id}: 已保留当前输出文件: {output_path}", flush=True)
 
     elapsed = time.time() - start
-    combined_text = reasoning_text + output_text
-    hit = False if error else answer_hit(combined_text, case["answers"])
+    content_hit = False if error else answer_hit(output_text, case["answers"])
+    reasoning_hit = False if error else answer_hit(reasoning_text, case["answers"])
+    hit = content_hit
     metadata = {
         "case_id": case_id,
         "model": model_name,
@@ -573,9 +574,8 @@ def run_case(
             else None
         ),
         "contains_expected_answer": hit,
-        "contains_expected_answer_in_content": (
-            False if error else answer_hit(output_text, case["answers"])
-        ),
+        "contains_expected_answer_in_content": content_hit,
+        "contains_expected_answer_in_reasoning": reasoning_hit,
         "error": error,
         "interrupted": interrupted,
         "streaming_request": True,
