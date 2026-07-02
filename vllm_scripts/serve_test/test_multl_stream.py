@@ -233,6 +233,9 @@ def parse_args():
   # 限制每个请求的回答长度
   python test_multl_stream.py -e ./presets/serial/Qwen3-30B-A3B_dp1_tp1_eager.sh --max-tokens 16
 
+  # 设置采样温度
+  python test_multl_stream.py -e ./presets/serial/Qwen3-30B-A3B_dp1_tp1_eager.sh --temperature 0
+
   # 通过 PRESET 环境变量
   PRESET=serial/Qwen3-30B-A3B_dp1_tp1_eager python test_multl_stream.py
 
@@ -251,6 +254,12 @@ def parse_args():
         default=16,
         help="限制每个请求的最大输出 token 数，默认 16",
     )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.7,
+        help="采样温度，默认 0.7",
+    )
     return parser.parse_args()
 
 
@@ -267,6 +276,10 @@ PORT = env_vars.get("USER_VLLM_PORT", "8000")
 MAX_TOKENS = args.max_tokens
 if MAX_TOKENS <= 0:
     print("[错误] --max-tokens 必须大于 0")
+    sys.exit(1)
+TEMPERATURE = args.temperature
+if TEMPERATURE < 0:
+    print("[错误] --temperature 必须大于等于 0")
     sys.exit(1)
 
 # 4. 初始化异步客户端
@@ -334,7 +347,7 @@ async def fetch_stream(task_id: int, prompt: str):
                 model=MODEL_NAME,
                 messages=[{"role": "user", "content": prompt}],
                 stream=True,  # 开启流式输出
-                temperature=0.7,
+                temperature=TEMPERATURE,
                 max_tokens=MAX_TOKENS,
             )
 
@@ -517,6 +530,7 @@ async def main():
     print(f"模型: {MODEL_NAME}")
     print(f"端口: {PORT}")
     print(f"max_tokens: {MAX_TOKENS} (reasoning + content 总生成 token 限制)")
+    print(f"temperature: {TEMPERATURE}")
     print(f"日志文件: {os.getcwd()}/vllm_task_*.log")
     print("提示：模型输出将流式写入独立的日志文件，屏幕仅显示实时状态。\n")
     check_server_ready(PORT)

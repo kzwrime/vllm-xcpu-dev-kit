@@ -10,6 +10,7 @@ TEST_SCRIPT="$SCRIPT_DIR/test_multl_stream.py"
 ITERATIONS=10
 PRESET_INPUT=""
 MAX_TOKENS=16
+TEMPERATURE=0.7
 OUTPUT_ROOT="$REPO_ROOT/logs/repeat_multl_stream"
 CASE_NAME=""
 PYTHON_BIN="${PYTHON:-python3}"
@@ -35,6 +36,7 @@ usage() {
   -n, --iterations NUM    重复次数，默认 10
   -e PRESET               预设文件，必填
   --max-tokens NUM        传给 test_multl_stream.py 的 --max-tokens，默认 16
+  --temperature NUM       传给 test_multl_stream.py 的 --temperature，默认 0.7
   -o, --output-root DIR   输出根目录，默认 logs/repeat_multl_stream
   --case NAME             问题/场景名称，用于输出目录命名
   --python BIN            Python 命令，默认 python3 或环境变量 PYTHON
@@ -45,7 +47,7 @@ usage() {
 
 示例:
   ./serve_test/repeat_multl_stream_test.sh -n 100 -e presets/serial/xxx.sh --case empty-stream
-  ./serve_test/repeat_multl_stream_test.sh -n 20 -e presets/serial/xxx.sh --max-tokens 64 -o logs/issue_1234
+  ./serve_test/repeat_multl_stream_test.sh -n 20 -e presets/serial/xxx.sh --max-tokens 64 --temperature 0 -o logs/issue_1234
 USAGE
 }
 
@@ -56,6 +58,10 @@ die() {
 
 is_positive_int() {
     [[ "${1:-}" =~ ^[0-9]+$ ]] && [ "$1" -gt 0 ]
+}
+
+is_nonnegative_number() {
+    [[ "${1:-}" =~ ^([0-9]+([.][0-9]*)?|[.][0-9]+)$ ]]
 }
 
 make_abs_path() {
@@ -153,6 +159,15 @@ while [ $# -gt 0 ]; do
             MAX_TOKENS="${1#*=}"
             shift
             ;;
+        --temperature)
+            [ $# -ge 2 ] || die "--temperature 需要一个数字"
+            TEMPERATURE="$2"
+            shift 2
+            ;;
+        --temperature=*)
+            TEMPERATURE="${1#*=}"
+            shift
+            ;;
         -o|--output-root)
             [ $# -ge 2 ] || die "$1 需要一个目录"
             OUTPUT_ROOT="$2"
@@ -204,6 +219,7 @@ done
 
 is_positive_int "$ITERATIONS" || die "--iterations 必须是大于 0 的整数"
 is_positive_int "$MAX_TOKENS" || die "--max-tokens 必须是大于 0 的整数"
+is_nonnegative_number "$TEMPERATURE" || die "--temperature 必须是大于等于 0 的数字"
 [ -f "$TEST_SCRIPT" ] || die "找不到测试脚本: $TEST_SCRIPT"
 [ -n "$PRESET_INPUT" ] || die "请通过 -e 指定预设文件"
 
@@ -231,6 +247,7 @@ echo "[信息] 重复次数: $ITERATIONS"
 echo "[信息] 预设文件: $PRESET_FILE"
 echo "[信息] vLLM API: http://127.0.0.1:${VLLM_PORT}/v1"
 echo "[信息] max_tokens: $MAX_TOKENS"
+echo "[信息] temperature: $TEMPERATURE"
 echo "[信息] 输出目录: $RUN_DIR"
 echo "[信息] Python: $PYTHON_BIN"
 
@@ -259,8 +276,9 @@ for ((i = 1; i <= ITERATIONS; i++)); do
         echo "test_script=$TEST_SCRIPT"
         echo "preset=$PRESET_FILE"
         echo "max_tokens=$MAX_TOKENS"
+        echo "temperature=$TEMPERATURE"
         echo "include_long=$INCLUDE_LONG"
-        echo "command=$PYTHON_BIN $TEST_SCRIPT -e $PRESET_FILE --max-tokens $MAX_TOKENS"
+        echo "command=$PYTHON_BIN $TEST_SCRIPT -e $PRESET_FILE --max-tokens $MAX_TOKENS --temperature $TEMPERATURE"
     } > "$metadata_file"
 
     echo ""
@@ -271,7 +289,7 @@ for ((i = 1; i <= ITERATIONS; i++)); do
         if [ "$INCLUDE_LONG" -eq 1 ]; then
             export VLLM_PD_MULTI_INCLUDE_LONG=1
         fi
-        "$PYTHON_BIN" "$TEST_SCRIPT" -e "$PRESET_FILE" --max-tokens "$MAX_TOKENS"
+        "$PYTHON_BIN" "$TEST_SCRIPT" -e "$PRESET_FILE" --max-tokens "$MAX_TOKENS" --temperature "$TEMPERATURE"
     ) > "$output_log" 2>&1
     exit_code=$?
 
