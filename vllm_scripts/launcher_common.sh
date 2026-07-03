@@ -148,6 +148,7 @@ launcher_prepare_runtime() {
     fi
 
     PIDS=()
+    LAUNCHER_ERROR_MONITOR_PID=""
     source "$PD_LAUNCHER_SH"
 }
 
@@ -163,6 +164,8 @@ launcher_cleanup_process_group() {
 }
 
 launcher_cleanup_processes() {
+    launcher_stop_error_monitor
+
     if [ "$LAUNCHER" = "mpi" ] && [ -n "${MPI_CLEANUP_LOG:-}" ]; then
         {
             pkill -TERM -f "vllm serve" 2>&1 || true
@@ -183,6 +186,41 @@ launcher_cleanup_processes() {
         done
         sleep 3
     fi
+}
+
+launcher_start_error_monitor() {
+    local target_pid="${1:-$$}"
+    local interval="${VLLM_TEST_ERROR_MONITOR_INTERVAL:-10}"
+
+    if [ -n "${LAUNCHER_ERROR_MONITOR_PID:-}" ] && kill -0 "$LAUNCHER_ERROR_MONITOR_PID" 2>/dev/null; then
+        return 0
+    fi
+
+    (
+        while true; do
+            sleep "$interval"
+            if [ -n "$(launcher_collect_error_details)" ]; then
+                echo ""
+                launcher_print_error_details
+                log_error "运行期检测到错误，终止测试流程"
+                for pid in "${PIDS[@]}"; do
+                    launcher_cleanup_process_group "$pid"
+                done
+                kill -TERM "$target_pid" 2>/dev/null || true
+                exit 0
+            fi
+        done
+    ) &
+    LAUNCHER_ERROR_MONITOR_PID=$!
+    log_info "错误监控已启动: pid=$LAUNCHER_ERROR_MONITOR_PID, interval=${interval}s"
+}
+
+launcher_stop_error_monitor() {
+    if [ -n "${LAUNCHER_ERROR_MONITOR_PID:-}" ] && kill -0 "$LAUNCHER_ERROR_MONITOR_PID" 2>/dev/null; then
+        kill "$LAUNCHER_ERROR_MONITOR_PID" 2>/dev/null || true
+        wait "$LAUNCHER_ERROR_MONITOR_PID" 2>/dev/null || true
+    fi
+    LAUNCHER_ERROR_MONITOR_PID=""
 }
 
 launcher_wait_for_http_service() {
