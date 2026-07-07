@@ -1,7 +1,6 @@
 
 export USER_VLLM_MODEL="Qwen/Qwen3-0.6B"
-# export USER_VLLM_MAX_MODEL_LEN=32768
-export USER_VLLM_MAX_MODEL_LEN=65536
+export USER_VLLM_MAX_MODEL_LEN=8192
 
 export USER_VLLM_DATA_PARALLEL_SIZE=2
 export USER_VLLM_TP_SIZE=2
@@ -11,7 +10,7 @@ export USER_VLLM_DATA_PARALLEL_RPC_IP="127.0.0.1"   # HEAD IP (API Server in hea
 export VLLM_DP_MASTER_WORKER_IP="127.0.0.1"         # DP-Rank0 Worker0 IP
 export USER_VLLM_DATA_PARALLEL_RPC_PORT=13345
 export USER_VLLM_PORT=14800
-export VLLM_CPU_KVCACHE_SPACE=8 # KV Cache Size
+export VLLM_CPU_KVCACHE_SPACE=4 # KV Cache Size
 # export USER_VLLM_EAGER_OR_NOT="--enforce-eager"
 
 # 设置 VLLM_USE_MPI_COORD=1 时，会通过额外的 python 脚本，自动协调并设置以下变量
@@ -30,7 +29,7 @@ export VLLM_LOOPBACK_IP=$(hostname -I | awk '{print $1}')
 # export VLLM_LOOPBACK_IP=$(ifconfig eth0 | grep "inet " | awk '{print $2}')
 
 export VLLM_USE_XCPU_LINEAR=1
-export TORCH_XCPU_ENABLE_CHECK=0
+# export TORCH_XCPU_ENABLE_CHECK=0
 # export VLLM_CPU_MOCK_LINEAR=1
 export VLLM_CPU_USE_MPI=0
 export TORCHINDUCTOR_CPP_WRAPPER=1
@@ -45,7 +44,6 @@ export VLLM_USE_XCPU_TOPK_TOPP_SAMPLER=1
 export VLLM_USE_V2_MODEL_RUNNER=1
 export VLLM_XCPU_USE_FUSED_DOT_SIGMOID_MUL_ADD=0
 export VLLM_XCPU_FUSE_GDN_IN_PROJ_QKVZBA=0
-export VLLM_XCPU_USE_FUSED_FFN=0
 
 # 开启 mpi_alltoallv v1/v2 时，必须关闭，开启 mpi_alltoallv v3 时，必须打开
 export VLLM_ENABLE_SEQUENCE_PARALLEL_MOE=0
@@ -70,7 +68,7 @@ export PD_MODE="${PD_MODE:-MIXED}"
 
 _VLLM_OPTIONAL_ARGS=" "
 _VLLM_OPTIONAL_ARGS+=" --max-num-seqs 16"
-_VLLM_OPTIONAL_ARGS+=" --no-enable-prefix-caching"
+# _VLLM_OPTIONAL_ARGS+=" --no-enable-prefix-caching"
 # _VLLM_OPTIONAL_ARGS+=" --no-async-scheduling"
 # _VLLM_OPTIONAL_ARGS+=" --load-format dummy"
 
