@@ -169,6 +169,7 @@ echo "========================================="
 
 # TORCHINDUCTOR_CACHE_DIR 必须是全局路径
 export TORCHINDUCTOR_CACHE_DIR="$PWD/torch_compile_cache_opt"
+export VLLM_CACHE_ROOT="$PWD/vllm_cache"
 
 export TORCH_DEVICE_BACKEND_AUTOLOAD=0
 export HF_HUB_OFFLINE=1
