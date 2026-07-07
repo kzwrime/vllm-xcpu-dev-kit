@@ -145,45 +145,20 @@ TEST_LOG="$LOG_DIR/test.log"
 BENCH_LOG="$LOG_DIR/bench.log"
 
 backup_old_logs() {
-    local patterns=(
-        "$LOG_DIR"/run_vllm_test.log
-        "$LOG_DIR"/run_vllm_test_*.log
-        "$LOG_DIR"/test.log
-        "$LOG_DIR"/test_*.log
-        "$SCRIPT_DIR"/vllm_task_*.log
-        "$LOG_DIR"/bench.log
-        "$LOG_DIR"/bench_*.log
-        "$LOG_DIR"/mpi_cleanup.log
-        "$LOG_DIR"/mpi_cleanup_*.log
-        "$LOG_DIR"/mpi_workers.log
-        "$LOG_DIR"/mpi_workers_*.log
-        "$LOG_DIR"/vllm_head_log.txt
-        "$LOG_DIR"/vllm_head_log.txt.old
-        "$LOG_DIR"/vllm_serve_log_dp_rank*.txt
-        "$LOG_DIR"/vllm_worker_log_rank*.txt
-        "$LOG_DIR"/vllm_worker_log_rank*.txt.old
-        "$LOG_DIR"/vllm_serve_log.txt
-        "$LOG_DIR"/vllm_serve_log.txt.old
-    )
     local files=()
     local file
     local latest_mtime=0
     local backup_stamp
     local backup_dir
 
-    shopt -s nullglob
-    for pattern in "${patterns[@]}"; do
-        for file in $pattern; do
-            [ -f "$file" ] || continue
-            files+=("$file")
-            local mtime
-            mtime=$(stat -c %Y "$file")
-            if [ "$mtime" -gt "$latest_mtime" ]; then
-                latest_mtime="$mtime"
-            fi
-        done
-    done
-    shopt -u nullglob
+    while IFS= read -r -d '' file; do
+        files+=("$file")
+        local mtime
+        mtime=$(stat -c %Y "$file")
+        if [ "$mtime" -gt "$latest_mtime" ]; then
+            latest_mtime="$mtime"
+        fi
+    done < <(find "$LOG_DIR" -maxdepth 1 -type f ! -name '.gitignore' -print0)
 
     [ "${#files[@]}" -eq 0 ] && return
 
@@ -200,25 +175,23 @@ backup_old_logs() {
 
 copy_current_logs() {
     local dest_dir="$1"
+    local file
     mkdir -p "$dest_dir"
 
-    find "$LOG_DIR" -mindepth 1 \( \
-        -path "$BACKUP_ROOT" -o \
-        -path "$BACKUP_ROOT/*" -o \
-        -path "$SUCCESS_ROOT" -o \
-        -path "$SUCCESS_ROOT/*" -o \
-        -path "$FAILED_ROOT" -o \
-        -path "$FAILED_ROOT/*" -o \
-        -name '.gitignore' \
-    \) -prune -o -type f -print | while read -r file; do
-        cp -p "$file" "$dest_dir/"
-    done
+    if [ "$DISAGG_PREFILL" -eq 1 ]; then
+        if [ -n "${PD_ROOT:-}" ] && [ -d "$PD_ROOT" ]; then
+            mkdir -p "$dest_dir/pd"
+            cp -a "$PD_ROOT" "$dest_dir/pd/"
+        fi
+        for file in "$TEST_LOG" "$BENCH_LOG"; do
+            [ -f "$file" ] && cp -p "$file" "$dest_dir/"
+        done
+        return
+    fi
 
-    shopt -s nullglob
-    for file in "$SCRIPT_DIR"/vllm_task_*.log; do
+    while IFS= read -r -d '' file; do
         cp -p "$file" "$dest_dir/"
-    done
-    shopt -u nullglob
+    done < <(find "$LOG_DIR" -maxdepth 1 -type f ! -name '.gitignore' -print0)
 }
 
 archive_run_logs() {
@@ -233,14 +206,21 @@ archive_run_logs() {
 
 cleanup() {
     local exit_code=$?
+    local archive_root=""
+    local archive_label=""
 
     if [ "$exit_code" -eq 0 ] && [ "$TEST_MODE" != "none" ]; then
-        archive_run_logs "$SUCCESS_ROOT" "成功"
+        archive_root="$SUCCESS_ROOT"
+        archive_label="成功"
     elif [ "$exit_code" -ne 0 ]; then
-        archive_run_logs "$FAILED_ROOT" "失败"
+        archive_root="$FAILED_ROOT"
+        archive_label="失败"
     fi
 
     launcher_cleanup_processes
+    if [ -n "$archive_root" ]; then
+        archive_run_logs "$archive_root" "$archive_label"
+    fi
     exit "$exit_code"
 }
 trap cleanup EXIT INT TERM
@@ -267,13 +247,18 @@ extract_model_reply() {
 cat_multi_test_results() {
     local files=()
     local file
+    local log_dir="$LOG_DIR"
+
+    if [ "$DISAGG_PREFILL" -eq 1 ] && [ -n "${PD_ROOT:-}" ]; then
+        log_dir="$PD_ROOT"
+    fi
 
     shopt -s nullglob
-    files=("$SCRIPT_DIR"/vllm_task_*.log)
+    files=("$log_dir"/vllm_task_*.log)
     shopt -u nullglob
 
     if [ "${#files[@]}" -eq 0 ]; then
-        log_warning "未找到 multi test 结果日志: $SCRIPT_DIR/vllm_task_*.log"
+        log_warning "未找到 multi test 结果日志: $log_dir/vllm_task_*.log"
         return
     fi
 
@@ -307,7 +292,12 @@ run_test() {
         log_info "测试日志: $TEST_LOG"
     elif [ "$TEST_MODE" = "multi" ]; then
         log_info "运行并发 multi test..."
-        if python "$SCRIPT_DIR/serve_test/test_multl_stream.py" "${TEST_ENV_ARGS[@]}" --max-tokens "$MULTI_TEST_MAX_TOKENS" > "$TEST_LOG" 2>&1; then
+        local multi_log_dir="$LOG_DIR"
+        if [ "$DISAGG_PREFILL" -eq 1 ] && [ -n "${PD_ROOT:-}" ]; then
+            multi_log_dir="$PD_ROOT"
+        fi
+        mkdir -p "$multi_log_dir"
+        if (cd "$multi_log_dir" && python "$SCRIPT_DIR/serve_test/test_multl_stream.py" "${TEST_ENV_ARGS[@]}" --max-tokens "$MULTI_TEST_MAX_TOKENS") > "$TEST_LOG" 2>&1; then
             log_success "Multi test 完成"
         else
             TEST_EXIT_CODE=$?
@@ -362,7 +352,11 @@ if [ "$TEST_MODE" = "coverage" ]; then
     log_info "Dump shapes 输出目录: $TORCH_XCPU_DUMP_SHAPES_OUTPUT_DIR"
 fi
 
-backup_old_logs
+if [ "$DISAGG_PREFILL" -eq 1 ]; then
+    log_info "P/D 分离模式跳过旧日志备份"
+else
+    backup_old_logs
+fi
 launcher_start_service
 launcher_wait_for_service
 

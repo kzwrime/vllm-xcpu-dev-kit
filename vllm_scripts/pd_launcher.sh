@@ -366,6 +366,7 @@ pd_start() {
     fi
 
     PD_ROOT="$pd_root"
+    MPI_CLEANUP_LOG="$PD_ROOT/mpi_cleanup.log"
     PD_PREFILL_URLS=""
     PD_DECODE_URLS=""
     PD_PREFILL_BOOTSTRAP_PORTS=""
