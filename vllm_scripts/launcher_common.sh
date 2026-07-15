@@ -255,6 +255,11 @@ launcher_validate_launcher() {
 }
 
 launcher_load_config() {
+    # Presets historically use the global SCRIPT_DIR variable while they are
+    # being sourced to locate user_env_template.sh.  Restore the launcher's
+    # own root afterwards; otherwise paths to serve/*.sh point into presets/.
+    local launcher_script_dir="$SCRIPT_DIR"
+
     load_env_file "$SCRIPT_DIR/env.sh"
     if [ -n "$PRESET_FILE_INPUT" ]; then
         load_preset_file "$PRESET_FILE_INPUT"
@@ -283,6 +288,8 @@ launcher_load_config() {
             ORIG_CONFIG_FILE="$SCRIPT_DIR/user_env_template.sh"
         fi
     fi
+
+    SCRIPT_DIR="$launcher_script_dir"
 
     [ -n "$PRESET_TAG" ] || PRESET_TAG="user_env"
     [ -n "$PRESET_NAME" ] || PRESET_NAME="$PRESET_TAG"
