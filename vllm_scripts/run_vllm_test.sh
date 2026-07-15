@@ -31,6 +31,8 @@ usage() {
                      multi test 每个请求的最大输出 token 数，默认 16
   --bench            启动服务后运行 bench
   --coverage         启动服务后运行 coverage bench，并 dump shapes
+  --test-timeout SECONDS
+                     测试 / multi test / bench 最长运行时间（秒），默认不限制
   --pd               以 P/D 分离模式运行
   --launcher MODE    强制指定启动方式: auto | mp | mpi
   --auto-port        如果 USER_VLLM_PORT 被占用，则从该端口开始寻找空闲端口
@@ -38,6 +40,8 @@ usage() {
 
 环境变量:
   VLLM_TEST_MAX_WAIT   服务启动最大等待时间（秒），默认 300
+  RUN_VLLM_TEST_TIMEOUT
+                       测试 / multi test / bench 最长运行时间（秒），默认不限制
   RUN_VLLM_TEST_AUTO_PORT
                        设为 1/true/yes/on 时等价于 --auto-port
 USAGE
@@ -52,6 +56,7 @@ PRESET_TAG=""
 PRESET_NAME=""
 TEST_EXIT_CODE=0
 MULTI_TEST_MAX_TOKENS=16
+TEST_TIMEOUT="${RUN_VLLM_TEST_TIMEOUT:-}"
 DISAGG_PREFILL=0
 TEST_ENV_ARGS=()
 ORIG_CONFIG_FILE=""
@@ -97,6 +102,19 @@ while [ $# -gt 0 ]; do
             TEST_MODE="coverage"
             shift
             ;;
+        --test-timeout)
+            if [ $# -lt 2 ]; then
+                log_error "--test-timeout 需要一个数字"
+                usage
+                exit 1
+            fi
+            TEST_TIMEOUT="$2"
+            shift 2
+            ;;
+        --test-timeout=*)
+            TEST_TIMEOUT="${1#*=}"
+            shift
+            ;;
         --pd|--disagg-prefill)
             DISAGG_PREFILL=1
             shift
@@ -134,6 +152,16 @@ launcher_validate_launcher
 if ! [[ "$MULTI_TEST_MAX_TOKENS" =~ ^[0-9]+$ ]] || [ "$MULTI_TEST_MAX_TOKENS" -eq 0 ]; then
     log_error "--multi-test-max-tokens 必须是大于 0 的整数"
     exit 1
+fi
+if [ -n "$TEST_TIMEOUT" ]; then
+    if ! [[ "$TEST_TIMEOUT" =~ ^[0-9]+$ ]] || [ "$TEST_TIMEOUT" -eq 0 ]; then
+        log_error "--test-timeout / RUN_VLLM_TEST_TIMEOUT 必须是大于 0 的整数秒"
+        exit 1
+    fi
+    if ! command -v timeout >/dev/null 2>&1; then
+        log_error "启用测试超时需要 timeout 命令"
+        exit 1
+    fi
 fi
 
 launcher_load_config
@@ -272,19 +300,38 @@ cat_multi_test_results() {
     done
 }
 
+run_with_test_timeout() {
+    if [ -n "$TEST_TIMEOUT" ]; then
+        timeout --kill-after=30s "${TEST_TIMEOUT}s" "$@"
+    else
+        "$@"
+    fi
+}
+
+log_test_exit() {
+    local label="$1"
+    local exit_code="$2"
+
+    if [ -n "$TEST_TIMEOUT" ] && [ "$exit_code" -eq 124 ]; then
+        log_warning "${label} 超过最长运行时间 ${TEST_TIMEOUT} 秒"
+    fi
+    log_warning "${label} 退出码: $exit_code"
+}
+
 run_test() {
     TEST_EXIT_CODE=0
 
     if [ "$TEST_MODE" = "test" ]; then
         log_info "运行测试..."
+        [ -n "$TEST_TIMEOUT" ] && log_info "测试最长运行时间: ${TEST_TIMEOUT} 秒"
         local test_output
-        if test_output=$(bash "$SCRIPT_DIR/serve_test/serve_test_template.sh" "${TEST_ENV_ARGS[@]}" 2>&1); then
+        if test_output=$(run_with_test_timeout bash "$SCRIPT_DIR/serve_test/serve_test_template.sh" "${TEST_ENV_ARGS[@]}" 2>&1); then
             printf '%s\n' "$test_output" | tee "$TEST_LOG"
             log_success "测试完成"
         else
             TEST_EXIT_CODE=$?
             printf '%s\n' "$test_output" | tee "$TEST_LOG"
-            log_warning "测试退出码: $TEST_EXIT_CODE"
+            log_test_exit "测试" "$TEST_EXIT_CODE"
         fi
 
         log_info "模型回答:"
@@ -292,35 +339,38 @@ run_test() {
         log_info "测试日志: $TEST_LOG"
     elif [ "$TEST_MODE" = "multi" ]; then
         log_info "运行并发 multi test..."
+        [ -n "$TEST_TIMEOUT" ] && log_info "Multi test 最长运行时间: ${TEST_TIMEOUT} 秒"
         local multi_log_dir="$LOG_DIR"
         if [ "$DISAGG_PREFILL" -eq 1 ] && [ -n "${PD_ROOT:-}" ]; then
             multi_log_dir="$PD_ROOT"
         fi
         mkdir -p "$multi_log_dir"
-        if (cd "$multi_log_dir" && python "$SCRIPT_DIR/serve_test/test_multl_stream.py" "${TEST_ENV_ARGS[@]}" --max-tokens "$MULTI_TEST_MAX_TOKENS") > "$TEST_LOG" 2>&1; then
+        if (cd "$multi_log_dir" && run_with_test_timeout python "$SCRIPT_DIR/serve_test/test_multl_stream.py" "${TEST_ENV_ARGS[@]}" --max-tokens "$MULTI_TEST_MAX_TOKENS") > "$TEST_LOG" 2>&1; then
             log_success "Multi test 完成"
         else
             TEST_EXIT_CODE=$?
-            log_warning "Multi test 退出码: $TEST_EXIT_CODE"
+            log_test_exit "Multi test" "$TEST_EXIT_CODE"
         fi
         log_info "测试日志: $TEST_LOG"
         cat_multi_test_results
     elif [ "$TEST_MODE" = "bench" ]; then
         log_info "运行 bench..."
-        if bash "$SCRIPT_DIR/serve_test/serve_bench_template.sh" "${TEST_ENV_ARGS[@]}" > "$BENCH_LOG" 2>&1; then
+        [ -n "$TEST_TIMEOUT" ] && log_info "Bench 最长运行时间: ${TEST_TIMEOUT} 秒"
+        if run_with_test_timeout bash "$SCRIPT_DIR/serve_test/serve_bench_template.sh" "${TEST_ENV_ARGS[@]}" > "$BENCH_LOG" 2>&1; then
             log_success "Bench 完成"
         else
             TEST_EXIT_CODE=$?
-            log_warning "Bench 退出码: $TEST_EXIT_CODE"
+            log_test_exit "Bench" "$TEST_EXIT_CODE"
         fi
         log_info "Bench 日志: $BENCH_LOG"
     elif [ "$TEST_MODE" = "coverage" ]; then
         log_info "运行 coverage bench..."
-        if bash "$SCRIPT_DIR/serve_test/serve_bench_coverage.sh" "${TEST_ENV_ARGS[@]}" > "$BENCH_LOG" 2>&1; then
+        [ -n "$TEST_TIMEOUT" ] && log_info "Coverage bench 最长运行时间: ${TEST_TIMEOUT} 秒"
+        if run_with_test_timeout bash "$SCRIPT_DIR/serve_test/serve_bench_coverage.sh" "${TEST_ENV_ARGS[@]}" > "$BENCH_LOG" 2>&1; then
             log_success "Coverage bench 完成"
         else
             TEST_EXIT_CODE=$?
-            log_warning "Coverage bench 退出码: $TEST_EXIT_CODE"
+            log_test_exit "Coverage bench" "$TEST_EXIT_CODE"
         fi
         log_info "Bench 日志: $BENCH_LOG"
     else
@@ -340,6 +390,7 @@ log_info "模型: $USER_VLLM_MODEL"
 log_info "端口: $USER_VLLM_PORT"
 log_info "并行配置: DP=${USER_VLLM_DATA_PARALLEL_SIZE}, TP=${USER_VLLM_TP_SIZE}, PP=${USER_VLLM_PP_SIZE}"
 log_info "测试模式: $TEST_MODE"
+[ -n "$TEST_TIMEOUT" ] && log_info "测试最长运行时间: ${TEST_TIMEOUT} 秒"
 log_info "启动器: $LAUNCHER"
 if [ "$DISAGG_PREFILL" -eq 1 ]; then
     log_info "P/D 分离模式: enabled"
