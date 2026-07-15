@@ -5,11 +5,11 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import gzip
 import json
 import shutil
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +17,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = ROOT / ".release" / "repository_versions.json"
 DEFAULT_OUTPUT_DIR = ROOT / ".release" / "publish"
+PUBLISHED_MANIFEST_NAME = "repository_versions_currently.json"
+EXPORT_VERSION_METADATA = ".release/repository_version.json"
 VLLM_REPOSITORY_NAME = "vllm"
 
 
@@ -62,39 +64,120 @@ def git_text(repo_path: Path, args: list[str]) -> str:
     return proc.stdout.decode("utf-8", errors="replace").strip()
 
 
+def current_branch(repo_path: Path) -> str:
+    proc = subprocess.run(
+        ["git", "-C", str(repo_path), "symbolic-ref", "--quiet", "--short", "HEAD"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"{repo_path} is in detached HEAD state; release packages must be "
+            "built from a checked-out branch"
+        )
+    return proc.stdout.decode("utf-8", errors="replace").strip()
+
+
 def short_commit(repo_path: Path, commit: str = "HEAD") -> str:
     return git_text(repo_path, ["rev-parse", "--short=6", commit])
 
 
-def archive_repository(
+def first_commit_after(repo_path: Path, base_commit: str, end_commit: str) -> str | None:
+    output = git_text(repo_path, ["rev-list", "--reverse", f"{base_commit}..{end_commit}"])
+    if not output:
+        return None
+    return output.splitlines()[0]
+
+
+def repository_version_entry(repository: dict[str, Any], version: str) -> dict[str, str]:
+    return {
+        "name": repository["name"],
+        "path": repository["path"],
+        "type": repository.get("type", "git-repository"),
+        "version": version,
+    }
+
+
+def repository_export_metadata(
+    repository: dict[str, Any],
+    *,
+    release_version: str,
+    release_date: str,
+    version: str,
+) -> str:
+    data = {
+        "schema_version": 1,
+        "release": {
+            "version": release_version,
+            "date": release_date,
+        },
+        **repository_version_entry(repository, version),
+    }
+    return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+
+
+def write_release_metadata(repository_dir: Path, metadata: str) -> None:
+    metadata_path = repository_dir / EXPORT_VERSION_METADATA
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_text(metadata, encoding="utf-8")
+
+
+def write_tar_gz(source_dir: Path, output: Path, arcname: str) -> None:
+    tmp_output = output.with_name(f"{output.name}.tmp")
+    if tmp_output.exists():
+        tmp_output.unlink()
+    with tarfile.open(tmp_output, "w:gz") as tar:
+        tar.add(source_dir, arcname=arcname)
+    tmp_output.replace(output)
+
+
+def clone_and_archive_repository(
     repository: dict[str, Any],
     *,
     output_dir: Path,
     release_version: str,
+    release_date: str,
+    head: str,
+    branch: str,
 ) -> Path:
     name = repository["name"]
     repo_path = resolve_repo_path(repository)
-    head_short = short_commit(repo_path)
+    head_short = short_commit(repo_path, head)
     output = output_dir / f"{name}_{release_version}_{head_short}.tar.gz"
-    tmp_output = output.with_name(f"{output.name}.tmp")
-    prefix = f"{name}/"
-
-    if tmp_output.exists():
-        tmp_output.unlink()
-    proc = subprocess.Popen(
-        ["git", "-C", str(repo_path), "archive", "--format=tar", f"--prefix={prefix}", "HEAD"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+    temp_dir = output_dir / f".{name}_{release_version}_{head_short}.clone-tmp"
+    clone_dir = temp_dir / name
+    metadata = repository_export_metadata(
+        repository,
+        release_version=release_version,
+        release_date=release_date,
+        version=head,
     )
-    assert proc.stdout is not None
-    with gzip.open(tmp_output, "wb") as f:
-        shutil.copyfileobj(proc.stdout, f)
-    stderr = proc.stderr.read().decode("utf-8", errors="replace").strip() if proc.stderr else ""
-    if proc.wait() != 0:
-        tmp_output.unlink(missing_ok=True)
-        raise RuntimeError(f"git archive {name} failed:\n{stderr}")
 
-    tmp_output.replace(output)
+    if temp_dir.exists():
+        shutil.rmtree(temp_dir)
+    try:
+        temp_dir.mkdir(parents=True)
+        run(
+            [
+                "git",
+                "clone",
+                "--no-hardlinks",
+                "--branch",
+                branch,
+                str(repo_path),
+                str(clone_dir),
+            ]
+        )
+        cloned_head = git_text(clone_dir, ["rev-parse", "HEAD"])
+        if cloned_head != head:
+            raise RuntimeError(
+                f"cloned {name} branch {branch} at {cloned_head}, expected {head}"
+            )
+        write_release_metadata(clone_dir, metadata)
+        write_tar_gz(clone_dir, output, name)
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
     return output
 
 
@@ -102,10 +185,13 @@ def create_vllm_patch(
     repository: dict[str, Any],
     *,
     output_dir: Path,
-) -> Path:
+) -> Path | None:
     repo_path = resolve_repo_path(repository)
-    start_commit = repository["version"]
+    base_commit = repository["version"]
     end_commit = git_text(repo_path, ["rev-parse", "HEAD"])
+    start_commit = first_commit_after(repo_path, base_commit, end_commit)
+    if start_commit is None:
+        return None
     start_short = short_commit(repo_path, start_commit)
     end_short = short_commit(repo_path, end_commit)
 
@@ -126,22 +212,44 @@ def create_vllm_patch(
 
 def package_release(manifest_path: Path, output_dir: Path, release_version: str) -> list[Path]:
     manifest = load_manifest(manifest_path)
+    release_date = dt.date.today().isoformat()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     artifacts: list[Path] = []
+    published_manifest: dict[str, Any] = {
+        "schema_version": 1,
+        "release": {
+            "version": release_version,
+            "date": release_date,
+        },
+        "repositories": [],
+    }
     for repository in manifest["repositories"]:
         repo_path = resolve_repo_path(repository)
         name = repository["name"]
-        if name == VLLM_REPOSITORY_NAME:
-            artifacts.append(create_vllm_patch(repository, output_dir=output_dir))
-        elif repo_path != ROOT:
-            artifacts.append(
-                archive_repository(
-                    repository,
-                    output_dir=output_dir,
-                    release_version=release_version,
-                )
+        head = git_text(repo_path, ["rev-parse", "HEAD"])
+        published_manifest["repositories"].append(repository_version_entry(repository, head))
+        branch = current_branch(repo_path)
+        artifacts.append(
+            clone_and_archive_repository(
+                repository,
+                output_dir=output_dir,
+                release_version=release_version,
+                release_date=release_date,
+                head=head,
+                branch=branch,
             )
+        )
+        if name == VLLM_REPOSITORY_NAME:
+            vllm_patch = create_vllm_patch(repository, output_dir=output_dir)
+            if vllm_patch is not None:
+                artifacts.append(vllm_patch)
+    manifest_output = output_dir / PUBLISHED_MANIFEST_NAME
+    manifest_output.write_text(
+        json.dumps(published_manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    artifacts.append(manifest_output)
     return artifacts
 
 

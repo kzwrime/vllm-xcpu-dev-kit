@@ -18,6 +18,7 @@ DEFAULT_CURRENT_MANIFEST = DEFAULT_MANIFEST.with_name(
     "repository_versions_currently.json"
 )
 DEFAULT_NOTES_DIR = ROOT / "docs" / "release_notes"
+EXPORT_VERSION_METADATA = Path(".release") / "repository_version.json"
 
 
 def run_git(repo_path: Path, args: list[str]) -> str:
@@ -32,6 +33,19 @@ def run_git(repo_path: Path, args: list[str]) -> str:
         raise RuntimeError(
             f"git -C {repo_path} {' '.join(args)} failed:\n{proc.stderr.strip()}"
         )
+    return proc.stdout.rstrip("\n")
+
+
+def try_run_git(repo_path: Path, args: list[str]) -> str | None:
+    proc = subprocess.run(
+        ["git", "-C", str(repo_path), *args],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if proc.returncode != 0:
+        return None
     return proc.stdout.rstrip("\n")
 
 
@@ -52,14 +66,61 @@ def resolve_repo_path(repository: dict[str, Any]) -> Path:
     return path
 
 
+def load_export_version_metadata(repo_path: Path) -> dict[str, Any] | None:
+    metadata_path = repo_path / EXPORT_VERSION_METADATA
+    if not metadata_path.is_file():
+        return None
+    with metadata_path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    if data.get("schema_version") != 1:
+        raise ValueError(
+            f"{metadata_path} has unsupported schema_version: {data.get('schema_version')}"
+        )
+    if not isinstance(data.get("version"), str) or not data["version"]:
+        raise ValueError(f"{metadata_path} does not contain a version")
+    return data
+
+
+def get_current_version(repository: dict[str, Any]) -> str:
+    repo_path = resolve_repo_path(repository)
+    head = try_run_git(repo_path, ["rev-parse", "HEAD"])
+    if head:
+        return head
+
+    metadata = load_export_version_metadata(repo_path)
+    if metadata:
+        return metadata["version"]
+
+    raise RuntimeError(
+        f"{repo_path} is not a git repository and does not contain "
+        f"{EXPORT_VERSION_METADATA}"
+    )
+
+
 def get_commit_lines(repository: dict[str, Any]) -> list[str]:
     repo_path = resolve_repo_path(repository)
     base = repository["version"]
     fmt = "%h%x09%ad%x09%an%x09%s"
-    output = run_git(
+    output = try_run_git(
         repo_path,
         ["log", "--date=short", f"--pretty=format:{fmt}", f"{base}..HEAD"],
     )
+    if output is None:
+        metadata = load_export_version_metadata(repo_path)
+        if not metadata:
+            raise RuntimeError(
+                f"{repo_path} is not a git repository and does not contain "
+                f"{EXPORT_VERSION_METADATA}"
+            )
+        current = metadata["version"]
+        if current == base:
+            return []
+        return [
+            "\t- "
+            f"{current[:9]} exported source tree; git log unavailable "
+            f"({base[:9]}..{current[:9]})"
+        ]
+
     if not output:
         return []
 
@@ -108,8 +169,7 @@ def update_manifest_versions(manifest: dict[str, Any], release_version: str, rel
     }
 
     for repository in manifest["repositories"]:
-        repo_path = resolve_repo_path(repository)
-        head = run_git(repo_path, ["rev-parse", "HEAD"])
+        head = get_current_version(repository)
         updated["repositories"].append(
             {
                 "name": repository["name"],

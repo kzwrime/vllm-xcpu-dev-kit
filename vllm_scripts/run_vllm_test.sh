@@ -31,6 +31,7 @@ usage() {
                      multi test 每个请求的最大输出 token 数，默认 16
   --bench            启动服务后运行 bench
   --coverage         启动服务后运行 coverage bench，并 dump shapes
+  --profile          在普通测试或 multi test 前后调用 vLLM profiler
   --test-timeout SECONDS
                      测试 / multi test / bench 最长运行时间（秒），默认不限制
   --pd               以 P/D 分离模式运行
@@ -58,6 +59,10 @@ TEST_EXIT_CODE=0
 MULTI_TEST_MAX_TOKENS=16
 TEST_TIMEOUT="${RUN_VLLM_TEST_TIMEOUT:-}"
 DISAGG_PREFILL=0
+PROFILE_TEST=0
+REQUESTED_NO_TEST=0
+REQUESTED_BENCH=0
+REQUESTED_COVERAGE=0
 TEST_ENV_ARGS=()
 ORIG_CONFIG_FILE=""
 
@@ -75,6 +80,7 @@ while [ $# -gt 0 ]; do
             ;;
         --no-test)
             TEST_MODE="none"
+            REQUESTED_NO_TEST=1
             shift
             ;;
         --multi-test)
@@ -96,10 +102,16 @@ while [ $# -gt 0 ]; do
             ;;
         --bench)
             TEST_MODE="bench"
+            REQUESTED_BENCH=1
             shift
             ;;
         --coverage)
             TEST_MODE="coverage"
+            REQUESTED_COVERAGE=1
+            shift
+            ;;
+        --profile)
+            PROFILE_TEST=1
             shift
             ;;
         --test-timeout)
@@ -153,6 +165,21 @@ if ! [[ "$MULTI_TEST_MAX_TOKENS" =~ ^[0-9]+$ ]] || [ "$MULTI_TEST_MAX_TOKENS" -e
     log_error "--multi-test-max-tokens 必须是大于 0 的整数"
     exit 1
 fi
+if [ "$PROFILE_TEST" -eq 1 ]; then
+    if [ "$REQUESTED_NO_TEST" -eq 1 ] || [ "$REQUESTED_BENCH" -eq 1 ] || [ "$REQUESTED_COVERAGE" -eq 1 ]; then
+        log_error "--profile 不能和 --bench/--coverage/--no-test 混用"
+        exit 1
+    fi
+
+    case "$TEST_MODE" in
+        test|multi)
+            ;;
+        *)
+            log_error "--profile 只能和普通测试或 --multi-test 一起使用"
+            exit 1
+            ;;
+    esac
+fi
 if [ -n "$TEST_TIMEOUT" ]; then
     if ! [[ "$TEST_TIMEOUT" =~ ^[0-9]+$ ]] || [ "$TEST_TIMEOUT" -eq 0 ]; then
         log_error "--test-timeout / RUN_VLLM_TEST_TIMEOUT 必须是大于 0 的整数秒"
@@ -171,6 +198,7 @@ launcher_prepare_runtime "run_vllm_test.log"
 
 TEST_LOG="$LOG_DIR/test.log"
 BENCH_LOG="$LOG_DIR/bench.log"
+PROFILER_LOG="$LOG_DIR/profiler.log"
 
 backup_old_logs() {
     local files=()
@@ -300,6 +328,46 @@ cat_multi_test_results() {
     done
 }
 
+call_profiler_endpoint() {
+    local label="$1"
+    local endpoint="$2"
+    local url="http://127.0.0.1:${USER_VLLM_PORT}/${endpoint}"
+    local rc=0
+
+    log_info "${label} profiler: $url"
+    echo "===== $(date '+%Y-%m-%d %H:%M:%S') ${endpoint} =====" >> "$PROFILER_LOG"
+    if curl --silent --show-error --fail -X POST "$url" >> "$PROFILER_LOG" 2>&1; then
+        echo "" >> "$PROFILER_LOG"
+        return 0
+    fi
+
+    rc=$?
+    echo "" >> "$PROFILER_LOG"
+    return "$rc"
+}
+
+start_profiler() {
+    : > "$PROFILER_LOG"
+    if call_profiler_endpoint "启动" "start_profile"; then
+        log_success "Profiler 已启动"
+        return 0
+    fi
+
+    log_error "启动 profiler 失败，详情见: $PROFILER_LOG"
+    return 1
+}
+
+stop_profiler() {
+    if call_profiler_endpoint "停止" "stop_profile"; then
+        log_success "Profiler 已停止"
+        log_info "Profiler 日志: $PROFILER_LOG"
+        return 0
+    fi
+
+    log_error "停止 profiler 失败，详情见: $PROFILER_LOG"
+    return 1
+}
+
 run_with_test_timeout() {
     if [ -n "$TEST_TIMEOUT" ]; then
         timeout --kill-after=30s "${TEST_TIMEOUT}s" "$@"
@@ -320,6 +388,13 @@ log_test_exit() {
 
 run_test() {
     TEST_EXIT_CODE=0
+    local stop_profile_rc=0
+
+    if [ "$PROFILE_TEST" -eq 1 ]; then
+        if ! start_profiler; then
+            return 1
+        fi
+    fi
 
     if [ "$TEST_MODE" = "test" ]; then
         log_info "运行测试..."
@@ -378,6 +453,18 @@ run_test() {
         log_info "手动测试示例: curl http://localhost:${USER_VLLM_PORT}/v1/models"
     fi
 
+    if [ "$PROFILE_TEST" -eq 1 ]; then
+        if stop_profiler; then
+            :
+        else
+            stop_profile_rc=$?
+        fi
+    fi
+
+    if [ "$TEST_EXIT_CODE" -eq 0 ] && [ "$stop_profile_rc" -ne 0 ]; then
+        TEST_EXIT_CODE="$stop_profile_rc"
+    fi
+
     return "$TEST_EXIT_CODE"
 }
 
@@ -392,6 +479,9 @@ log_info "并行配置: DP=${USER_VLLM_DATA_PARALLEL_SIZE}, TP=${USER_VLLM_TP_SI
 log_info "测试模式: $TEST_MODE"
 [ -n "$TEST_TIMEOUT" ] && log_info "测试最长运行时间: ${TEST_TIMEOUT} 秒"
 log_info "启动器: $LAUNCHER"
+if [ "$PROFILE_TEST" -eq 1 ]; then
+    log_info "Profiler: enabled"
+fi
 if [ "$DISAGG_PREFILL" -eq 1 ]; then
     log_info "P/D 分离模式: enabled"
 fi
@@ -410,6 +500,9 @@ else
 fi
 launcher_start_service
 launcher_wait_for_service
+if [ "$DISAGG_PREFILL" -eq 1 ]; then
+    launcher_start_error_monitor "$$"
+fi
 
 if [ "$DISAGG_PREFILL" -eq 1 ] && [ "$TEST_MODE" = "multi" ]; then
     export VLLM_PD_MULTI_INCLUDE_LONG=1
@@ -427,6 +520,9 @@ if [ "$DISAGG_PREFILL" -eq 1 ] && [ "$TEST_MODE" != "none" ]; then
     fi
 fi
 pd_validate_transfer
+if [ "$DISAGG_PREFILL" -eq 1 ] && [ "$TEST_MODE" != "none" ]; then
+    launcher_stop_error_monitor
+fi
 
 echo ""
 log_info "日志文件位置:"
