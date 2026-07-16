@@ -293,7 +293,15 @@ launcher_load_config() {
 
     [ -n "$PRESET_TAG" ] || PRESET_TAG="user_env"
     [ -n "$PRESET_NAME" ] || PRESET_NAME="$PRESET_TAG"
-    TEST_ENV_ARGS=("${ENV_ARGS[@]}")
+    # Tests may run from logs/ (multi-test does), so a relative -e path would
+    # no longer resolve against the vllm_scripts directory.  Keep ENV_ARGS
+    # unchanged for the launch scripts, but pass the canonical preset path to
+    # all test entry points.
+    if [ -n "$PRESET_FILE_INPUT" ]; then
+        TEST_ENV_ARGS=("-e" "$ORIG_CONFIG_FILE")
+    else
+        TEST_ENV_ARGS=("${ENV_ARGS[@]}")
+    fi
 }
 
 launcher_check_required_env() {
