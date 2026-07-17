@@ -33,7 +33,7 @@ fi
 # 解析命令行参数并加载环境配置
 parse_args_and_load_env "$SCRIPT_DIR/.." "$@"
 
-curl --silent --show-error \
+curl --silent --show-error --fail-with-body \
   --write-out '\ncurl_time_total_seconds=%{time_total}\n' \
   "http://localhost:${USER_VLLM_PORT}/v1/chat/completions" \
   -H "Content-Type: application/json" \
