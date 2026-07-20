@@ -38,6 +38,7 @@ pip install -r vllm/requirements/cpu.txt --extra-index-url https://download.pyto
 pip install setuptools_scm
 pip install modelscope ruff mypy expecttest setuptools_rust
 pip install clangd==18.1.8.1 clang-format==18.1.3
+pip install -U "lm_eval[api]"
 
 python -m pip cache remove mpi4py
 MPICC=mpicc MPILD=mpicc python -m pip install --no-binary=mpi4py mpi4py
