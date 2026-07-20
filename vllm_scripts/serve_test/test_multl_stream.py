@@ -237,6 +237,9 @@ def parse_args():
   # 设置采样温度
   python test_multl_stream.py -e ./presets/serial/Qwen3-30B-A3B_dp1_tp1_eager.sh --temperature 0
 
+  # 显式开启 thinking（默认关闭）
+  python test_multl_stream.py -e ./presets/serial/Qwen3-30B-A3B_dp1_tp1_eager.sh --enable-thinking
+
   # 通过 PRESET 环境变量
   PRESET=serial/Qwen3-30B-A3B_dp1_tp1_eager python test_multl_stream.py
 
@@ -252,7 +255,7 @@ def parse_args():
     parser.add_argument(
         "--max-tokens",
         type=int,
-        default=16,
+        default=6144,
         help="限制每个请求的最大输出 token 数，默认 16",
     )
     parser.add_argument(
@@ -261,6 +264,20 @@ def parse_args():
         default=0.7,
         help="采样温度，默认 0.7",
     )
+    thinking_group = parser.add_mutually_exclusive_group()
+    thinking_group.add_argument(
+        "--enable-thinking",
+        dest="enable_thinking",
+        action="store_true",
+        help="开启模型 thinking",
+    )
+    thinking_group.add_argument(
+        "--disable-thinking",
+        dest="enable_thinking",
+        action="store_false",
+        help="关闭模型 thinking（默认）",
+    )
+    parser.set_defaults(enable_thinking=False)
     return parser.parse_args()
 
 
@@ -282,6 +299,7 @@ TEMPERATURE = args.temperature
 if TEMPERATURE < 0:
     print("[错误] --temperature 必须大于等于 0")
     sys.exit(1)
+ENABLE_THINKING = args.enable_thinking
 
 # 4. 初始化异步客户端
 client = AsyncOpenAI(
@@ -350,6 +368,11 @@ async def fetch_stream(task_id: int, prompt: str):
                 stream=True,  # 开启流式输出
                 temperature=TEMPERATURE,
                 max_tokens=MAX_TOKENS,
+                extra_body={
+                    "chat_template_kwargs": {
+                        "enable_thinking": ENABLE_THINKING,
+                    }
+                },
             )
 
             reasoning_text = ""
@@ -532,6 +555,7 @@ async def main():
     print(f"端口: {PORT}")
     print(f"max_tokens: {MAX_TOKENS} (reasoning + content 总生成 token 限制)")
     print(f"temperature: {TEMPERATURE}")
+    print(f"thinking: {'enabled' if ENABLE_THINKING else 'disabled'}")
     print(f"日志文件: {os.getcwd()}/vllm_task_*.log")
     print("提示：模型输出将流式写入独立的日志文件，屏幕仅显示实时状态。\n")
     check_server_ready(PORT)

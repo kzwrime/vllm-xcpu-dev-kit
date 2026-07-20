@@ -33,6 +33,11 @@ fi
 # 解析命令行参数并加载环境配置
 parse_args_and_load_env "$SCRIPT_DIR/.." "$@"
 
+# 如果需要使用 profiler 分析，取消注释以发送 start_profile / stop_profile
+
+# curl --silent --show-error --fail-with-body \
+#   -X POST "http://localhost:${USER_VLLM_PORT}/start_profile"
+
 curl --silent --show-error --fail-with-body \
   --write-out '\ncurl_time_total_seconds=%{time_total}\n' \
   "http://localhost:${USER_VLLM_PORT}/v1/chat/completions" \
@@ -44,9 +49,15 @@ curl --silent --show-error --fail-with-body \
       {"role": "system", "content": "You are a helpful assistant."},
       {"role": "user", "content": "请用一段话简单介绍一下量子计算。"}
     ],
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    },
     "max_tokens": 16,
-    "temperature": 0.5
+    "temperature": 0.7
   }'
+
+# curl --silent --show-error --fail-with-body \
+#   -X POST "http://localhost:${USER_VLLM_PORT}/stop_profile"
 
 # curl --silent --show-error \
 #   --write-out '\ncurl_time_total_seconds=%{time_total}\n' \

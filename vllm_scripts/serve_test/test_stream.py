@@ -211,6 +211,9 @@ def main():
   # 设置输出长度和采样温度
   python test_stream.py -e ./presets/serial/Qwen3-30B-A3B_dp1_tp1_eager.sh --max-tokens 3000 --temperature 0
 
+  # 显式关闭 thinking（默认开启）
+  python test_stream.py -e ./presets/serial/Qwen3-30B-A3B_dp1_tp1_eager.sh --disable-thinking
+
   # 通过 PRESET 环境变量
   PRESET=serial/Qwen3-30B-A3B_dp1_tp1_eager python test_stream.py
         """
@@ -237,6 +240,20 @@ def main():
         action="store_true",
         help="跳过启动前 /v1/models 连通性检查",
     )
+    thinking_group = parser.add_mutually_exclusive_group()
+    thinking_group.add_argument(
+        "--enable-thinking",
+        dest="enable_thinking",
+        action="store_true",
+        help="开启模型 thinking（默认）",
+    )
+    thinking_group.add_argument(
+        "--disable-thinking",
+        dest="enable_thinking",
+        action="store_false",
+        help="关闭模型 thinking",
+    )
+    parser.set_defaults(enable_thinking=True)
 
     args = parser.parse_args()
     if args.max_tokens <= 0:
@@ -267,6 +284,7 @@ def main():
     print(f"端口: {PORT}")
     print(f"max_tokens: {MAX_TOKENS} (reasoning + content 总生成 token 限制)")
     print(f"temperature: {TEMPERATURE}")
+    print(f"thinking: {'enabled' if args.enable_thinking else 'disabled'}")
     print("-" * 50)
     if not args.no_health_check:
         check_server_ready(PORT)
@@ -281,6 +299,11 @@ def main():
             stream=True,  # 开启流式输出
             temperature=TEMPERATURE,
             max_tokens=MAX_TOKENS,
+            extra_body={
+                "chat_template_kwargs": {
+                    "enable_thinking": args.enable_thinking,
+                }
+            },
         )
 
         # 5. 实时打印返回的数据块 (chunks)，显式区分思考过程和最终回答

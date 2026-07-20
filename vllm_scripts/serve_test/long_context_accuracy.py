@@ -619,6 +619,7 @@ def run_case(
     output_dir: Path,
     max_tokens: int,
     temperature: float,
+    enable_thinking: bool,
     echo_stream: bool,
 ) -> dict[str, Any]:
     case_id = case["case_id"]
@@ -665,6 +666,11 @@ def run_case(
             max_tokens=max_tokens,
             temperature=temperature,
             stream=True,
+            extra_body={
+                "chat_template_kwargs": {
+                    "enable_thinking": enable_thinking,
+                }
+            },
         )
         with output_path.open("w", encoding="utf-8") as out:
             for chunk in response:
@@ -779,6 +785,7 @@ def run_case(
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": True,
+            "chat_template_kwargs": {"enable_thinking": enable_thinking},
         },
         "elapsed_seconds": round(elapsed, 3),
         "first_chunk_seconds": (
@@ -858,6 +865,9 @@ def parse_args() -> argparse.Namespace:
 
   # 请求始终使用流式；下面选项只开启终端实时回显
   python serve_test/long_context_accuracy.py --stream
+
+  # 显式关闭 thinking（默认开启）
+  python serve_test/long_context_accuracy.py --disable-thinking
         """,
     )
     parser.add_argument("-e", metavar="预设文件", help="指定预设文件路径")
@@ -931,6 +941,20 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="开启终端实时回显；请求始终流式写入文件，默认不回显",
     )
+    thinking_group = parser.add_mutually_exclusive_group()
+    thinking_group.add_argument(
+        "--enable-thinking",
+        dest="enable_thinking",
+        action="store_true",
+        help="开启模型 thinking（默认）",
+    )
+    thinking_group.add_argument(
+        "--disable-thinking",
+        dest="enable_thinking",
+        action="store_false",
+        help="关闭模型 thinking",
+    )
+    parser.set_defaults(enable_thinking=True)
     return parser.parse_args()
 
 
@@ -1042,6 +1066,7 @@ def main() -> None:
                             "temperature": args.temperature,
                             "timeout": args.timeout,
                             "stream_echo": echo_stream,
+                            "enable_thinking": args.enable_thinking,
                         },
                         ensure_ascii=False,
                     ),
@@ -1055,6 +1080,7 @@ def main() -> None:
                         output_dir=run_output_dir,
                         max_tokens=args.max_tokens,
                         temperature=args.temperature,
+                        enable_thinking=args.enable_thinking,
                         echo_stream=echo_stream,
                     )
                     result["run_index"] = run_index
