@@ -255,8 +255,8 @@ def parse_args():
     parser.add_argument(
         "--max-tokens",
         type=int,
-        default=6144,
-        help="限制每个请求的最大输出 token 数，默认 16",
+        default=32,
+        help="限制每个请求的最大输出 token 数，默认 32",
     )
     parser.add_argument(
         "--temperature",
