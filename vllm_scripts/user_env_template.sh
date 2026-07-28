@@ -72,7 +72,7 @@ export PD_MODE="${PD_MODE:-MIXED}"
 
 _VLLM_OPTIONAL_ARGS=" "
 _VLLM_OPTIONAL_ARGS+=" --max-num-seqs 16"
-# _VLLM_OPTIONAL_ARGS+=" --no-enable-prefix-caching"
+_VLLM_OPTIONAL_ARGS+=" --enable-prefix-caching"
 # _VLLM_OPTIONAL_ARGS+=" --no-async-scheduling"
 # _VLLM_OPTIONAL_ARGS+=" --load-format dummy"
 
