@@ -1,6 +1,6 @@
 
 export USER_VLLM_MODEL="Qwen/Qwen3-0.6B"
-export USER_VLLM_MAX_MODEL_LEN=8192
+export USER_VLLM_MAX_MODEL_LEN="${USER_VLLM_MAX_MODEL_LEN:-4096}"
 
 export USER_VLLM_DATA_PARALLEL_SIZE=2
 export USER_VLLM_TP_SIZE=2
@@ -91,7 +91,10 @@ _VLLM_OPTIONAL_ARGS+=' --profiler-config {"profiler":"torch","torch_profiler_dir
 # 1. 使用 xxx_mtp.sh 类 model preset，如 presets/serial/Qwen3.5-0.8B_dp1_tp1_eager_mtp.sh
 # 2. 使用原 model preset 时，需要在本文件中打开下面 --speculative-config 的 MTP 配置
 
-# _VLLM_OPTIONAL_ARGS+=' --speculative-config {"method":"mtp","num_speculative_tokens":1}'
+_VLLM_OPTIONAL_ARGS+=' --speculative-config {"method":"mtp","num_speculative_tokens":1}'
+
+# DFlash 开启
+# _VLLM_OPTIONAL_ARGS+=' --speculative-config {"model":"/weight/qwen/Qwen3.5-4B-DFlash","num_speculative_tokens":2,"method":"dflash"}'
 
 # 开启 GDN compile 优化
 export VLLM_XCPU_GDN_COMPILE=1
