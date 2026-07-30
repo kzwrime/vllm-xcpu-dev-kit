@@ -13,7 +13,7 @@ source "$SCRIPT_DIR/user_env_template.sh"
 
 # 覆盖必要配置
 export USER_VLLM_EAGER_OR_NOT="--enforce-eager"
-export USER_VLLM_MODEL="Qwen/Qwen3-0.6B"
+export USER_VLLM_MODEL="/weight/qwen/Qwen3-0.6B"
 export USER_VLLM_DATA_PARALLEL_SIZE=1
 export USER_VLLM_TP_SIZE=2
 export USER_VLLM_PP_SIZE=1

@@ -14,7 +14,7 @@ source "$SCRIPT_DIR/user_env_template.sh"
 # 覆盖必要配置
 # export USER_VLLM_EAGER_OR_NOT="--enforce-eager"
 export TORCH_XCPU_ENABLE_CHECK=0
-export USER_VLLM_MODEL="Qwen/Qwen3.5-4B"
+export USER_VLLM_MODEL="/weight/qwen/Qwen3.5-4B"
 export USER_VLLM_DATA_PARALLEL_SIZE=1
 export USER_VLLM_TP_SIZE=1
 export USER_VLLM_PP_SIZE=1
