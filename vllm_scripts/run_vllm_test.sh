@@ -192,6 +192,65 @@ if [ -n "$TEST_TIMEOUT" ]; then
 fi
 
 launcher_load_config
+
+launcher_auto_configure_modelscope() {
+    case "${VLLM_USE_MODELSCOPE:-}" in
+        [aA][uU][tT][oO])
+            local cache_status
+            local hf_found=0
+            local modelscope_found=0
+
+            # Use the libraries' own cache resolution and repository lookup.
+            # local_files_only prevents this probe from contacting either hub.
+            cache_status="$({
+                python3 - "${USER_VLLM_MODEL:-}" <<'PY'
+import sys
+
+model = sys.argv[1]
+found = {"hf": 0, "modelscope": 0}
+
+if model:
+    try:
+        from huggingface_hub import snapshot_download
+
+        snapshot_download(repo_id=model, local_files_only=True)
+        found["hf"] = 1
+    except Exception:
+        pass
+
+    try:
+        from modelscope import snapshot_download
+
+        snapshot_download(model_id=model, local_files_only=True)
+        found["modelscope"] = 1
+    except Exception:
+        pass
+
+print(f"{found['hf']} {found['modelscope']}")
+PY
+            } 2>/dev/null)"
+
+            read -r hf_found modelscope_found <<< "$cache_status"
+            [[ "$hf_found" == 1 ]] || hf_found=0
+            [[ "$modelscope_found" == 1 ]] || modelscope_found=0
+
+            if [ "$hf_found" -eq 1 ]; then
+                export VLLM_USE_MODELSCOPE=False
+            elif [ "$modelscope_found" -eq 1 ]; then
+                export VLLM_USE_MODELSCOPE=True
+            else
+                export VLLM_USE_MODELSCOPE=False
+            fi
+
+            log_info "自动检测模型缓存: ${USER_VLLM_MODEL}"
+            log_info "  Hugging Face: $([ "$hf_found" -eq 1 ] && echo found || echo not-found)"
+            log_info "  ModelScope: $([ "$modelscope_found" -eq 1 ] && echo found || echo not-found)"
+            log_info "已设置 VLLM_USE_MODELSCOPE=${VLLM_USE_MODELSCOPE}"
+            ;;
+    esac
+}
+
+launcher_auto_configure_modelscope
 launcher_check_required_env
 mkdir -p "$BACKUP_ROOT" "$SUCCESS_ROOT" "$FAILED_ROOT"
 launcher_prepare_runtime "run_vllm_test.log"
