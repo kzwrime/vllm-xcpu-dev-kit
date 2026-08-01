@@ -20,9 +20,7 @@ export USER_VLLM_PP_SIZE=1
 export USER_VLLM_MPC_SIZE=$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE))
 export VLLM_USE_MPI_COORD=1
 export VLLM_CPU_USE_MPI=1
-export VLLM_ALL2ALL_BACKEND_XCPU="mpi_alltoallv"
-export VLLM_MPI_ALLTOALLV_VERSION="v3"
-export VLLM_ENABLE_SEQUENCE_PARALLEL_MOE=1
+_VLLM_OPTIONAL_ARGS+=" --all2all-backend mpi_alltoallv_v3"
 
 # 自动获取预设名称和目录
 preset_name=$(basename "${BASH_SOURCE[0]}" .sh)

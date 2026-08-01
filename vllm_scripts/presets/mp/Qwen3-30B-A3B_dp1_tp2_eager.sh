@@ -19,7 +19,6 @@ export USER_VLLM_DATA_PARALLEL_SIZE=1
 export USER_VLLM_TP_SIZE=2
 export USER_VLLM_PP_SIZE=1
 export USER_VLLM_MPC_SIZE=$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE))
-unset VLLM_ALL2ALL_BACKEND_XCPU
 
 # 自动获取预设名称和目录
 preset_name=$(basename "${BASH_SOURCE[0]}" .sh)

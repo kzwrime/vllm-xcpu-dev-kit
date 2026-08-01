@@ -19,7 +19,6 @@ export USER_VLLM_DATA_PARALLEL_SIZE=1
 export USER_VLLM_TP_SIZE=1
 export USER_VLLM_PP_SIZE=1
 export USER_VLLM_MPC_SIZE=$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE))
-unset VLLM_ALL2ALL_BACKEND_XCPU
 
 # NVIDIA Eagle3 head. HF_HUB_OFFLINE=1 is set by user_env_template.sh, so the
 # corresponding cache entries under ~/.cache/huggingface/hub must already exist.

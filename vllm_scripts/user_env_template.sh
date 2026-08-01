@@ -49,12 +49,8 @@ export VLLM_XCPU_USE_FUSED_FFN=0
 # 设置此选项以避免 torch.compile 发生失败
 export VLLM_USE_LAYERNAME=0
 
-# 开启 mpi_alltoallv v1/v2 时，必须关闭，开启 mpi_alltoallv v3 时，必须打开
-export VLLM_ENABLE_SEQUENCE_PARALLEL_MOE=0
 
-# export VLLM_ALL2ALL_BACKEND_XCPU="torch_all_to_all_single" # Fallback solution with universal compatibility
-export VLLM_ALL2ALL_BACKEND_XCPU="mpi_alltoallv" # Requires: VLLM_CPU_USE_MPI=1
-export VLLM_MPI_ALLTOALLV_VERSION="v2"  # v2 采用新的 alltoallv_put
+# MoE presets select their communication backend with --all2all-backend.
 
 # xcpu runtime dummy run fast path: dummy rank 仍执行同步通信，但跳过非必要 token 计算
 # 默认设置为 1；设置为 0 可关闭该优化以回退到原始 dummy run 行为

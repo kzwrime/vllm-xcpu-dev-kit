@@ -18,7 +18,7 @@ export USER_VLLM_DATA_PARALLEL_SIZE=1
 export USER_VLLM_TP_SIZE=1
 export USER_VLLM_PP_SIZE=1
 export USER_VLLM_MPC_SIZE=$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE))
-export VLLM_ALL2ALL_BACKEND_XCPU="all_to_all_single"
+_VLLM_OPTIONAL_ARGS+=" --all2all-backend all_to_all_single"
 
 export VLLM_XCPU_GDN_DECODE_ONLY_COMPILE=1
 _VLLM_OPTIONAL_ARGS+="  --load-format dummy"

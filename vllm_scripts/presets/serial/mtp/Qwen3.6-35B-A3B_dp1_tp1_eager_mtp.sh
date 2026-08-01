@@ -18,7 +18,7 @@ export USER_VLLM_DATA_PARALLEL_SIZE=1
 export USER_VLLM_TP_SIZE=1
 export USER_VLLM_PP_SIZE=1
 export USER_VLLM_MPC_SIZE=$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE))
-export VLLM_ALL2ALL_BACKEND_XCPU="all_to_all_single"
+_VLLM_OPTIONAL_ARGS+=" --all2all-backend all_to_all_single"
 
 _VLLM_OPTIONAL_ARGS+=" --reasoning-parser qwen3 --language-model-only"
 _VLLM_OPTIONAL_ARGS+=' --speculative-config {"method":"mtp","num_speculative_tokens":1}'

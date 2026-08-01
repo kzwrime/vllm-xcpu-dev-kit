@@ -20,8 +20,7 @@ export USER_VLLM_PP_SIZE=1
 export USER_VLLM_MPC_SIZE=$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE))
 export VLLM_USE_MPI_COORD=1
 export VLLM_CPU_USE_MPI=1
-export VLLM_ALL2ALL_BACKEND_XCPU="mpi_alltoallv"
-export VLLM_MPI_ALLTOALLV_VERSION="v2"
+_VLLM_OPTIONAL_ARGS+=" --all2all-backend mpi_alltoallv_v2"
 
 _VLLM_OPTIONAL_ARGS+=" --load-format dummy"
 
