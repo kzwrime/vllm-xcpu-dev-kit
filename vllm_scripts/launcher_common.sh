@@ -432,9 +432,15 @@ launcher_wait_for_http_service() {
         if models_response=$(curl --silent --fail "http://127.0.0.1:${port}/v1/models" 2>/dev/null); then
             if launcher_models_contains_model "$models_response" "$USER_VLLM_MODEL"; then
                 echo ""
-                log_success "$name API 服务 URL 服务就绪"
+                log_success "$name API 服务就绪"
                 return 0
             fi
+        fi
+
+        if [ -n "$(launcher_collect_error_details)" ]; then
+            echo ""
+            launcher_print_error_details
+            return 1
         fi
 
         echo -n "."
@@ -484,45 +490,6 @@ launcher_print_error_details() {
         [ -n "$line" ] && log_error " -> $line"
     done
     return 0
-}
-
-launcher_wait_for_log_startup() {
-    local max_wait="${VLLM_TEST_MAX_WAIT:-300}"
-    local wait_time=0
-    local check_interval=5
-    local ready_log
-
-    if [ "$LAUNCHER" = "mpi" ]; then
-        ready_log="$HEAD_SERVE_LOG"
-    else
-        ready_log="$MP_SERVE_LOG"
-    fi
-
-    log_info "等待服务启动..."
-    while [ "$wait_time" -lt "$max_wait" ]; do
-        if [ -f "$ready_log" ] && grep -q "Application startup complete" "$ready_log"; then
-            echo ""
-            log_success "服务启动成功"
-            sleep 5
-            return 0
-        fi
-
-        if [ -n "$(launcher_collect_error_details)" ]; then
-            echo ""
-            launcher_print_error_details
-            return 1
-        fi
-
-        echo -n "."
-        sleep "$check_interval"
-        wait_time=$((wait_time + check_interval))
-    done
-
-    echo ""
-    log_error "等待超时 (${max_wait} 秒)"
-    log_error "提示: 可通过设置 VLLM_TEST_MAX_WAIT 环境变量调整超时时间（当前: ${max_wait} 秒）"
-    [ -f "$ready_log" ] && tail -30 "$ready_log"
-    return 1
 }
 
 launcher_start_mp() {
@@ -575,7 +542,6 @@ launcher_wait_for_service() {
     if [ "$DISAGG_PREFILL" -eq 1 ]; then
         return 0
     fi
-    launcher_wait_for_log_startup
     launcher_wait_for_api
 }
 
@@ -584,11 +550,7 @@ launcher_wait_for_api() {
         return 0
     fi
 
-    if [ "$LAUNCHER" = "mpi" ]; then
-        launcher_wait_for_http_service "vLLM" "$USER_VLLM_PORT" "$HEAD_SERVE_LOG"
-    else
-        launcher_wait_for_http_service "vLLM" "$USER_VLLM_PORT" "$MP_SERVE_LOG"
-    fi
+    launcher_wait_for_http_service "vLLM" "$USER_VLLM_PORT" "$LAUNCH_LOG"
 }
 
 launcher_print_service_locations() {

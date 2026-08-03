@@ -4,7 +4,10 @@
 set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_DIR="$SCRIPT_DIR/logs"
+LOG_DIR="${VLLM_TEST_LOG_DIR:-$SCRIPT_DIR/logs}"
+if [[ "$LOG_DIR" != /* ]]; then
+    LOG_DIR="$PWD/${LOG_DIR#./}"
+fi
 BACKUP_ROOT="$LOG_DIR/backups"
 SUCCESS_ROOT="$LOG_DIR/success"
 FAILED_ROOT="$LOG_DIR/failed"
@@ -29,6 +32,8 @@ usage() {
   --multi-test       启动服务后运行 serve_test/test_multl_stream.py
   --multi-test-max-tokens NUM
                      multi test 每个请求的最大输出 token 数，默认 16
+  --multi-test-temperature NUM
+                     multi test 采样温度，默认 0.7；设为 0 时使用 greedy 解码
   --bench            启动服务后运行 bench
   --coverage         启动服务后运行 coverage bench，并 dump shapes
   --profile          在普通测试或 multi test 前后调用 vLLM profiler
@@ -40,6 +45,7 @@ usage() {
   -h, --help         显示帮助
 
 环境变量:
+  VLLM_TEST_LOG_DIR   本次运行的日志根目录，默认 <vllm_scripts>/logs
   VLLM_TEST_MAX_WAIT   服务启动最大等待时间（秒），默认 300
   RUN_VLLM_TEST_TIMEOUT
                        测试 / multi test / bench 最长运行时间（秒），默认不限制
@@ -57,6 +63,7 @@ PRESET_TAG=""
 PRESET_NAME=""
 TEST_EXIT_CODE=0
 MULTI_TEST_MAX_TOKENS=16
+MULTI_TEST_TEMPERATURE=0.7
 TEST_TIMEOUT="${RUN_VLLM_TEST_TIMEOUT:-}"
 DISAGG_PREFILL=0
 PROFILE_TEST=0
@@ -98,6 +105,19 @@ while [ $# -gt 0 ]; do
             ;;
         --multi-test-max-tokens=*)
             MULTI_TEST_MAX_TOKENS="${1#*=}"
+            shift
+            ;;
+        --multi-test-temperature)
+            if [ $# -lt 2 ]; then
+                log_error "--multi-test-temperature 需要一个数字"
+                usage
+                exit 1
+            fi
+            MULTI_TEST_TEMPERATURE="$2"
+            shift 2
+            ;;
+        --multi-test-temperature=*)
+            MULTI_TEST_TEMPERATURE="${1#*=}"
             shift
             ;;
         --bench)
@@ -163,6 +183,10 @@ done
 launcher_validate_launcher
 if ! [[ "$MULTI_TEST_MAX_TOKENS" =~ ^[0-9]+$ ]] || [ "$MULTI_TEST_MAX_TOKENS" -eq 0 ]; then
     log_error "--multi-test-max-tokens 必须是大于 0 的整数"
+    exit 1
+fi
+if ! [[ "$MULTI_TEST_TEMPERATURE" =~ ^([0-9]+([.][0-9]*)?|[.][0-9]+)$ ]]; then
+    log_error "--multi-test-temperature 必须是大于等于 0 的数字"
     exit 1
 fi
 if [ "$PROFILE_TEST" -eq 1 ]; then
@@ -479,7 +503,7 @@ run_test() {
             multi_log_dir="$PD_ROOT"
         fi
         mkdir -p "$multi_log_dir"
-        if (cd "$multi_log_dir" && run_with_test_timeout python "$SCRIPT_DIR/serve_test/test_multl_stream.py" "${TEST_ENV_ARGS[@]}" --max-tokens "$MULTI_TEST_MAX_TOKENS") > "$TEST_LOG" 2>&1; then
+        if (cd "$multi_log_dir" && run_with_test_timeout python "$SCRIPT_DIR/serve_test/test_multl_stream.py" "${TEST_ENV_ARGS[@]}" --max-tokens "$MULTI_TEST_MAX_TOKENS" --temperature "$MULTI_TEST_TEMPERATURE") > "$TEST_LOG" 2>&1; then
             log_success "Multi test 完成"
         else
             TEST_EXIT_CODE=$?
@@ -533,6 +557,8 @@ log_info "========================================="
 log_info "配置来源: $CONFIG_SOURCE"
 log_info "Preset 标识: $PRESET_TAG"
 log_info "模型: $USER_VLLM_MODEL"
+[ -n "${TORCH_XCPU_FP8_MOE_BACKEND:-}" ] && \
+    log_info "FP8 MoE compute backend: $TORCH_XCPU_FP8_MOE_BACKEND"
 log_info "端口: $USER_VLLM_PORT"
 log_info "并行配置: DP=${USER_VLLM_DATA_PARALLEL_SIZE}, TP=${USER_VLLM_TP_SIZE}, PP=${USER_VLLM_PP_SIZE}"
 log_info "测试模式: $TEST_MODE"

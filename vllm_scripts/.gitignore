@@ -5,3 +5,4 @@ dump_shape*
 torch_compile*
 vllm_profile*
 tmp
+vllm_cache
