@@ -6,21 +6,24 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../"
 
 # 在加载模板前设置独立配置项
-export PD_MODE="MIXED"
+export PD_MODE="NOT_MOE"
 
 # 加载基础模板配置
 source "$SCRIPT_DIR/user_env_template.sh"
 
 # 覆盖必要配置
 export USER_VLLM_EAGER_OR_NOT="--enforce-eager"
-export USER_VLLM_MODEL="Qwen/Qwen3-30B-A3B-Instruct-2507"
-export USER_VLLM_DATA_PARALLEL_SIZE=2
+export USER_VLLM_MODEL="Qwen/Qwen3.6-35B-A3B-FP8"
+export USER_VLLM_DATA_PARALLEL_SIZE=1
 export USER_VLLM_TP_SIZE=2
 export USER_VLLM_PP_SIZE=1
 export USER_VLLM_MPC_SIZE=$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE))
 export VLLM_USE_MPI_COORD=1
 export VLLM_CPU_USE_MPI=1
-_VLLM_OPTIONAL_ARGS+=" --all2all-backend mpi_alltoallv_v2"
+_VLLM_OPTIONAL_ARGS+=" --all2all-backend all_to_all_single"
+
+export VLLM_XCPU_GDN_DECODE_ONLY_COMPILE=1
+_VLLM_OPTIONAL_ARGS+=" --reasoning-parser qwen3 --language-model-only"
 export VLLM_OPTIONAL_ARGS="${_VLLM_OPTIONAL_ARGS}"
 
 # 自动获取预设名称和目录

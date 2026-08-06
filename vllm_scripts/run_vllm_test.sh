@@ -557,8 +557,8 @@ log_info "========================================="
 log_info "配置来源: $CONFIG_SOURCE"
 log_info "Preset 标识: $PRESET_TAG"
 log_info "模型: $USER_VLLM_MODEL"
-[ -n "${TORCH_XCPU_FP8_MOE_BACKEND:-}" ] && \
-    log_info "FP8 MoE compute backend: $TORCH_XCPU_FP8_MOE_BACKEND"
+[ -n "${TORCH_XCPU_MOE_GROUPED_GEMM_BACKEND:-}" ] && \
+    log_info "MoE grouped-GEMM backend: $TORCH_XCPU_MOE_GROUPED_GEMM_BACKEND"
 log_info "端口: $USER_VLLM_PORT"
 log_info "并行配置: DP=${USER_VLLM_DATA_PARALLEL_SIZE}, TP=${USER_VLLM_TP_SIZE}, PP=${USER_VLLM_PP_SIZE}"
 log_info "测试模式: $TEST_MODE"

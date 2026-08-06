@@ -3,24 +3,25 @@
 # Configuration: DP=2, TP=2, PP=1, enforce-eager mode
 # MPI Processes: 4 (DP * TP * PP = 2 * 2 * 1)
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../"
 
 # 在加载模板前设置独立配置项
-export PD_MODE="MIXED"
+export PD_MODE="NOT_MOE"
 
 # 加载基础模板配置
 source "$SCRIPT_DIR/user_env_template.sh"
 
 # 覆盖必要配置
+export TORCH_XCPU_ENABLE_CHECK=0
 export USER_VLLM_EAGER_OR_NOT="--enforce-eager"
-export USER_VLLM_MODEL="Qwen/Qwen3-30B-A3B-Instruct-2507"
-export USER_VLLM_DATA_PARALLEL_SIZE=2
-export USER_VLLM_TP_SIZE=2
+export USER_VLLM_MODEL="../models/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8-dummy-2-layer"
+export USER_VLLM_DATA_PARALLEL_SIZE=1
+export USER_VLLM_TP_SIZE=1
 export USER_VLLM_PP_SIZE=1
 export USER_VLLM_MPC_SIZE=$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE))
-export VLLM_USE_MPI_COORD=1
-export VLLM_CPU_USE_MPI=1
-_VLLM_OPTIONAL_ARGS+=" --all2all-backend mpi_alltoallv_v2"
+_VLLM_OPTIONAL_ARGS+=" --all2all-backend all_to_all_single"
+
+_VLLM_OPTIONAL_ARGS+="  --load-format dummy"
 export VLLM_OPTIONAL_ARGS="${_VLLM_OPTIONAL_ARGS}"
 
 # 自动获取预设名称和目录
