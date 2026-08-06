@@ -10,6 +10,7 @@ cd ${PROJ_HOME}/vllm
 VLLM_TARGET_DEVICE=cpu python setup.py develop
 pip install pre-commit
 pre-commit install
+pip uninstall triton
 
 cd ${PROJ_HOME}/torch_mcpu
 ./scripts/install-git-hooks.sh
