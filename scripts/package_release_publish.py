@@ -90,6 +90,23 @@ def first_commit_after(repo_path: Path, base_commit: str, end_commit: str) -> st
     return output.splitlines()[0]
 
 
+def is_ancestor(repo_path: Path, ancestor: str, descendant: str = "HEAD") -> bool:
+    proc = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo_path),
+            "merge-base",
+            "--is-ancestor",
+            ancestor,
+            descendant,
+        ],
+        check=False,
+        capture_output=True,
+    )
+    return proc.returncode == 0
+
+
 def repository_version_entry(repository: dict[str, Any], version: str) -> dict[str, str]:
     return {
         "name": repository["name"],
@@ -189,6 +206,13 @@ def create_vllm_patch(
     repo_path = resolve_repo_path(repository)
     base_commit = repository["version"]
     end_commit = git_text(repo_path, ["rev-parse", "HEAD"])
+    if not is_ancestor(repo_path, base_commit, end_commit):
+        print(
+            "skip vllm patch: the previous release commit "
+            f"{base_commit} is not an ancestor of {end_commit}",
+            file=sys.stderr,
+        )
+        return None
     start_commit = first_commit_after(repo_path, base_commit, end_commit)
     if start_commit is None:
         return None
