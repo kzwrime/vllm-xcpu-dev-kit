@@ -1,0 +1,98 @@
+x-node-common: &node-common
+  # This is deliberately a fresh development image.  It does not reuse the
+  # old `*-backup` image that the currently-running cluster uses.
+  build:
+    context: .
+  image: ${IMAGE_NAME:-wzk-vllm-xcpu-dev:ubuntu24.04}
+  restart: "no"
+  volumes:
+    - ${HF_CACHE_HOST_PATH:?set HF_CACHE_HOST_PATH in the selected env file}:/root/.cache/huggingface:rw
+    - ${MODELSCOPE_CACHE_HOST_PATH:?set MODELSCOPE_CACHE_HOST_PATH in the selected env file}:/root/.cache/modelscope:rw
+    - ${SHARED_HOST_PATH:?set SHARED_HOST_PATH in the selected env file}:/shared:rw
+    - ${DEV_CODE_HOST_PATH:?set DEV_CODE_HOST_PATH in the selected env file}:/workspace:rw
+    - ${CACHE_HOST_PATH:?set CACHE_HOST_PATH in the selected env file}:/cache:rw
+    - ${SHM_HOST_PATH:-/dev/shm}:/dev/shm:rw
+    - ./ssh/id_ed25519:/root/.ssh/id_ed25519:ro
+    - ./ssh/authorized_keys:/run/cluster-ssh/authorized_keys:ro
+  cap_add:
+    - SYS_PTRACE
+    - PERFMON
+  security_opt:
+    - seccomp:unconfined
+  ulimits:
+    memlock: -1
+
+services:
+  c1:
+    <<: *node-common
+    container_name: ${CONTAINER_NAME_PREFIX:-wzk-vllm-xcpu-03}-c1
+    hostname: node01
+    networks:
+      vllm: {aliases: [node01], ipv4_address: "${VLLM_SUBNET_PREFIX:-172.30.3}.11"}
+    volumes:
+      - ${HF_CACHE_HOST_PATH}:/root/.cache/huggingface:rw
+      - ${MODELSCOPE_CACHE_HOST_PATH}:/root/.cache/modelscope:rw
+      - ${SHARED_HOST_PATH}:/shared:rw
+      - ${DEV_CODE_HOST_PATH}:/workspace:rw
+      - ${CACHE_HOST_PATH}:/cache:rw
+      - ${SHM_HOST_PATH:-/dev/shm}:/dev/shm:rw
+      - ./ssh/id_ed25519:/root/.ssh/id_ed25519:ro
+      - ./ssh/authorized_keys:/run/cluster-ssh/authorized_keys:ro
+      - c1_ssh_hostkeys:/var/lib/ssh-hostkeys
+  c2:
+    <<: *node-common
+    container_name: ${CONTAINER_NAME_PREFIX:-wzk-vllm-xcpu-03}-c2
+    hostname: node02
+    networks: {vllm: {aliases: [node02], ipv4_address: "${VLLM_SUBNET_PREFIX:-172.30.3}.12"}}
+    volumes: ["${HF_CACHE_HOST_PATH}:/root/.cache/huggingface:rw", "${MODELSCOPE_CACHE_HOST_PATH}:/root/.cache/modelscope:rw", "${SHARED_HOST_PATH}:/shared:rw", "${DEV_CODE_HOST_PATH}:/workspace:rw", "${CACHE_HOST_PATH}:/cache:rw", "${SHM_HOST_PATH:-/dev/shm}:/dev/shm:rw", "./ssh/id_ed25519:/root/.ssh/id_ed25519:ro", "./ssh/authorized_keys:/run/cluster-ssh/authorized_keys:ro", "c2_ssh_hostkeys:/var/lib/ssh-hostkeys"]
+  c3:
+    <<: *node-common
+    container_name: ${CONTAINER_NAME_PREFIX:-wzk-vllm-xcpu-03}-c3
+    hostname: node03
+    networks: {vllm: {aliases: [node03], ipv4_address: "${VLLM_SUBNET_PREFIX:-172.30.3}.13"}}
+    volumes: ["${HF_CACHE_HOST_PATH}:/root/.cache/huggingface:rw", "${MODELSCOPE_CACHE_HOST_PATH}:/root/.cache/modelscope:rw", "${SHARED_HOST_PATH}:/shared:rw", "${DEV_CODE_HOST_PATH}:/workspace:rw", "${CACHE_HOST_PATH}:/cache:rw", "${SHM_HOST_PATH:-/dev/shm}:/dev/shm:rw", "./ssh/id_ed25519:/root/.ssh/id_ed25519:ro", "./ssh/authorized_keys:/run/cluster-ssh/authorized_keys:ro", "c3_ssh_hostkeys:/var/lib/ssh-hostkeys"]
+  c4:
+    <<: *node-common
+    container_name: ${CONTAINER_NAME_PREFIX:-wzk-vllm-xcpu-03}-c4
+    hostname: node04
+    networks: {vllm: {aliases: [node04], ipv4_address: "${VLLM_SUBNET_PREFIX:-172.30.3}.14"}}
+    volumes: ["${HF_CACHE_HOST_PATH}:/root/.cache/huggingface:rw", "${MODELSCOPE_CACHE_HOST_PATH}:/root/.cache/modelscope:rw", "${SHARED_HOST_PATH}:/shared:rw", "${DEV_CODE_HOST_PATH}:/workspace:rw", "${CACHE_HOST_PATH}:/cache:rw", "${SHM_HOST_PATH:-/dev/shm}:/dev/shm:rw", "./ssh/id_ed25519:/root/.ssh/id_ed25519:ro", "./ssh/authorized_keys:/run/cluster-ssh/authorized_keys:ro", "c4_ssh_hostkeys:/var/lib/ssh-hostkeys"]
+  c5:
+    <<: *node-common
+    container_name: ${CONTAINER_NAME_PREFIX:-wzk-vllm-xcpu-03}-c5
+    hostname: node05
+    networks: {vllm: {aliases: [node05], ipv4_address: "${VLLM_SUBNET_PREFIX:-172.30.3}.15"}}
+    volumes: ["${HF_CACHE_HOST_PATH}:/root/.cache/huggingface:rw", "${MODELSCOPE_CACHE_HOST_PATH}:/root/.cache/modelscope:rw", "${SHARED_HOST_PATH}:/shared:rw", "${DEV_CODE_HOST_PATH}:/workspace:rw", "${CACHE_HOST_PATH}:/cache:rw", "${SHM_HOST_PATH:-/dev/shm}:/dev/shm:rw", "./ssh/id_ed25519:/root/.ssh/id_ed25519:ro", "./ssh/authorized_keys:/run/cluster-ssh/authorized_keys:ro", "c5_ssh_hostkeys:/var/lib/ssh-hostkeys"]
+  c6:
+    <<: *node-common
+    container_name: ${CONTAINER_NAME_PREFIX:-wzk-vllm-xcpu-03}-c6
+    hostname: node06
+    networks: {vllm: {aliases: [node06], ipv4_address: "${VLLM_SUBNET_PREFIX:-172.30.3}.16"}}
+    volumes: ["${HF_CACHE_HOST_PATH}:/root/.cache/huggingface:rw", "${MODELSCOPE_CACHE_HOST_PATH}:/root/.cache/modelscope:rw", "${SHARED_HOST_PATH}:/shared:rw", "${DEV_CODE_HOST_PATH}:/workspace:rw", "${CACHE_HOST_PATH}:/cache:rw", "${SHM_HOST_PATH:-/dev/shm}:/dev/shm:rw", "./ssh/id_ed25519:/root/.ssh/id_ed25519:ro", "./ssh/authorized_keys:/run/cluster-ssh/authorized_keys:ro", "c6_ssh_hostkeys:/var/lib/ssh-hostkeys"]
+  c7:
+    <<: *node-common
+    container_name: ${CONTAINER_NAME_PREFIX:-wzk-vllm-xcpu-03}-c7
+    hostname: node07
+    networks: {vllm: {aliases: [node07], ipv4_address: "${VLLM_SUBNET_PREFIX:-172.30.3}.17"}}
+    volumes: ["${HF_CACHE_HOST_PATH}:/root/.cache/huggingface:rw", "${MODELSCOPE_CACHE_HOST_PATH}:/root/.cache/modelscope:rw", "${SHARED_HOST_PATH}:/shared:rw", "${DEV_CODE_HOST_PATH}:/workspace:rw", "${CACHE_HOST_PATH}:/cache:rw", "${SHM_HOST_PATH:-/dev/shm}:/dev/shm:rw", "./ssh/id_ed25519:/root/.ssh/id_ed25519:ro", "./ssh/authorized_keys:/run/cluster-ssh/authorized_keys:ro", "c7_ssh_hostkeys:/var/lib/ssh-hostkeys"]
+  c8:
+    <<: *node-common
+    container_name: ${CONTAINER_NAME_PREFIX:-wzk-vllm-xcpu-03}-c8
+    hostname: node08
+    networks: {vllm: {aliases: [node08], ipv4_address: "${VLLM_SUBNET_PREFIX:-172.30.3}.18"}}
+    volumes: ["${HF_CACHE_HOST_PATH}:/root/.cache/huggingface:rw", "${MODELSCOPE_CACHE_HOST_PATH}:/root/.cache/modelscope:rw", "${SHARED_HOST_PATH}:/shared:rw", "${DEV_CODE_HOST_PATH}:/workspace:rw", "${CACHE_HOST_PATH}:/cache:rw", "${SHM_HOST_PATH:-/dev/shm}:/dev/shm:rw", "./ssh/id_ed25519:/root/.ssh/id_ed25519:ro", "./ssh/authorized_keys:/run/cluster-ssh/authorized_keys:ro", "c8_ssh_hostkeys:/var/lib/ssh-hostkeys"]
+
+networks:
+  vllm:
+    external: true
+    name: ${VLLM_NETWORK_NAME:-wzk-vllm-xcpu-03-net}
+
+volumes:
+  c1_ssh_hostkeys:
+  c2_ssh_hostkeys:
+  c3_ssh_hostkeys:
+  c4_ssh_hostkeys:
+  c5_ssh_hostkeys:
+  c6_ssh_hostkeys:
+  c7_ssh_hostkeys:
+  c8_ssh_hostkeys:
