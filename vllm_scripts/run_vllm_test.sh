@@ -71,6 +71,7 @@ REQUESTED_NO_TEST=0
 REQUESTED_BENCH=0
 REQUESTED_COVERAGE=0
 TEST_ENV_ARGS=()
+CURRENT_RUN_OUTPUT_LOGS=()
 ORIG_CONFIG_FILE=""
 
 while [ $# -gt 0 ]; do
@@ -322,7 +323,7 @@ copy_current_logs() {
             mkdir -p "$dest_dir/pd"
             cp -a "$PD_ROOT" "$dest_dir/pd/"
         fi
-        for file in "$TEST_LOG" "$BENCH_LOG"; do
+        for file in "${CURRENT_RUN_OUTPUT_LOGS[@]}"; do
             [ -f "$file" ] && cp -p "$file" "$dest_dir/"
         done
         return
@@ -483,6 +484,7 @@ run_test() {
         log_info "运行测试..."
         [ -n "$TEST_TIMEOUT" ] && log_info "测试最长运行时间: ${TEST_TIMEOUT} 秒"
         local test_output
+        CURRENT_RUN_OUTPUT_LOGS+=("$TEST_LOG")
         if test_output=$(run_with_test_timeout bash "$SCRIPT_DIR/serve_test/serve_test_template.sh" "${TEST_ENV_ARGS[@]}" 2>&1); then
             printf '%s\n' "$test_output" | tee "$TEST_LOG"
             log_success "测试完成"
@@ -503,6 +505,7 @@ run_test() {
             multi_log_dir="$PD_ROOT"
         fi
         mkdir -p "$multi_log_dir"
+        CURRENT_RUN_OUTPUT_LOGS+=("$TEST_LOG")
         if (cd "$multi_log_dir" && run_with_test_timeout python "$SCRIPT_DIR/serve_test/test_multl_stream.py" "${TEST_ENV_ARGS[@]}" --max-tokens "$MULTI_TEST_MAX_TOKENS" --temperature "$MULTI_TEST_TEMPERATURE") > "$TEST_LOG" 2>&1; then
             log_success "Multi test 完成"
         else
@@ -514,6 +517,7 @@ run_test() {
     elif [ "$TEST_MODE" = "bench" ]; then
         log_info "运行 bench..."
         [ -n "$TEST_TIMEOUT" ] && log_info "Bench 最长运行时间: ${TEST_TIMEOUT} 秒"
+        CURRENT_RUN_OUTPUT_LOGS+=("$BENCH_LOG")
         if run_with_test_timeout bash "$SCRIPT_DIR/serve_test/serve_bench_template.sh" "${TEST_ENV_ARGS[@]}" > "$BENCH_LOG" 2>&1; then
             log_success "Bench 完成"
         else
@@ -524,6 +528,7 @@ run_test() {
     elif [ "$TEST_MODE" = "coverage" ]; then
         log_info "运行 coverage bench..."
         [ -n "$TEST_TIMEOUT" ] && log_info "Coverage bench 最长运行时间: ${TEST_TIMEOUT} 秒"
+        CURRENT_RUN_OUTPUT_LOGS+=("$BENCH_LOG")
         if run_with_test_timeout bash "$SCRIPT_DIR/serve_test/serve_bench_coverage.sh" "${TEST_ENV_ARGS[@]}" > "$BENCH_LOG" 2>&1; then
             log_success "Coverage bench 完成"
         else

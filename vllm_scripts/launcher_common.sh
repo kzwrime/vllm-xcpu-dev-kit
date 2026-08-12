@@ -463,18 +463,24 @@ launcher_collect_error_details() {
     local files=()
     local file
 
-    [ -f "${LAUNCH_LOG:-}" ] && files+=("$LAUNCH_LOG")
-    [ -f "${HEAD_SERVE_LOG:-}" ] && files+=("$HEAD_SERVE_LOG")
-    [ -f "${MPI_WORKERS_LOG:-}" ] && files+=("$MPI_WORKERS_LOG")
-    [ -f "${MP_SERVE_LOG:-}" ] && files+=("$MP_SERVE_LOG")
-    if [ -n "${PD_ROOT:-}" ] && [ -d "$PD_ROOT" ]; then
+    if [ "${DISAGG_PREFILL:-0}" -eq 1 ] && [ -n "${PD_ROOT:-}" ] && [ -d "$PD_ROOT" ]; then
+        # Every P/D run has a unique root.  Restrict the scan to that root so
+        # stale top-level logs from an earlier non-P/D run cannot abort startup.
         while IFS= read -r file; do
             files+=("$file")
         done < <(find "$PD_ROOT" -type f \( -name '*.log' -o -name 'vllm_*_log*.txt' \) -print 2>/dev/null)
+    else
+        [ -f "${LAUNCH_LOG:-}" ] && files+=("$LAUNCH_LOG")
+        [ -f "${HEAD_SERVE_LOG:-}" ] && files+=("$HEAD_SERVE_LOG")
+        [ -f "${MPI_WORKERS_LOG:-}" ] && files+=("$MPI_WORKERS_LOG")
+        [ -f "${MP_SERVE_LOG:-}" ] && files+=("$MP_SERVE_LOG")
     fi
 
     if [ "${#files[@]}" -gt 0 ]; then
-        error_details=$(grep -HinE "(^|[^[:alnum:]_])(ERROR|CRITICAL|FATAL)([^[:alnum:]_]|$)|Traceback \(most recent call last\)|RuntimeError:|AssertionError:|ValueError:|KeyError:|TypeError:|ImportError:|ModuleNotFoundError:|Segmentation fault|Fatal Python error|terminate called after throwing|c10::Error|Exception raised from|ServerDisconnectedError|ConnectionRefusedError|Connection reset by peer|Aborted" "${files[@]}" 2>/dev/null | head -n 8 || true)
+        # Log levels and exception names are case-sensitive.  A case-insensitive
+        # scan misclassifies benign DEBUG messages containing ordinary prose
+        # such as "An error happened while trying to locate the file".
+        error_details=$(grep -HnE "(^|[^[:alnum:]_])(ERROR|CRITICAL|FATAL)([^[:alnum:]_]|$)|Traceback \(most recent call last\)|RuntimeError:|AssertionError:|ValueError:|KeyError:|TypeError:|ImportError:|ModuleNotFoundError:|Segmentation fault|Fatal Python error|terminate called after throwing|c10::Error|Exception raised from|ServerDisconnectedError|ConnectionRefusedError|Connection reset by peer|Aborted" "${files[@]}" 2>/dev/null | head -n 8 || true)
     fi
 
     printf '%s' "$error_details"
