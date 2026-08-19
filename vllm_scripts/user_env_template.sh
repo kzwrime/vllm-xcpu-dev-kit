@@ -1,6 +1,7 @@
 
 export USER_VLLM_MODEL="Qwen/Qwen3-0.6B"
 export USER_VLLM_MAX_MODEL_LEN=8192
+export USER_VLLM_MAX_NUM_SEQS="${USER_VLLM_MAX_NUM_SEQS:-16}"
 
 export USER_VLLM_DATA_PARALLEL_SIZE=2
 export USER_VLLM_TP_SIZE=2
@@ -67,7 +68,7 @@ export VLLM_XCPU_ENABLE_DUMMY_RUN_FAST_PATH="${VLLM_XCPU_ENABLE_DUMMY_RUN_FAST_P
 export PD_MODE="${PD_MODE:-MIXED}"
 
 _VLLM_OPTIONAL_ARGS=" "
-_VLLM_OPTIONAL_ARGS+=" --max-num-seqs 16"
+_VLLM_OPTIONAL_ARGS+=" --max-num-seqs ${USER_VLLM_MAX_NUM_SEQS}"
 _VLLM_OPTIONAL_ARGS+=" --enable-prefix-caching"
 # _VLLM_OPTIONAL_ARGS+=" --no-async-scheduling"
 # _VLLM_OPTIONAL_ARGS+=" --load-format dummy"
