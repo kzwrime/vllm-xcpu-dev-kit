@@ -18,10 +18,13 @@
 # 查看可用模型
 # curl http://localhost:8000/v1/models
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Keep the bench script root separate from SCRIPT_DIR. Presets loaded below
+# historically reuse SCRIPT_DIR for their own paths, which would otherwise
+# make dataset paths depend on the selected preset directory.
+BENCH_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # 加载通用函数
-ENV_FILE="$SCRIPT_DIR/../common.sh"
+ENV_FILE="$BENCH_SCRIPT_DIR/../common.sh"
 if [ -f "$ENV_FILE" ]; then
     echo "loading env file: $ENV_FILE"
     source "$ENV_FILE"
@@ -31,7 +34,7 @@ else
 fi
 
 # 解析命令行参数并加载环境配置
-parse_args_and_load_env "$SCRIPT_DIR/.." "$@"
+parse_args_and_load_env "$BENCH_SCRIPT_DIR/.." "$@"
 
 # Batch Decode 测试
 vllm bench serve --port ${USER_VLLM_PORT} \
@@ -53,7 +56,7 @@ vllm bench serve --port ${USER_VLLM_PORT} \
 #     --backend vllm \
 #     --endpoint /v1/completions \
 #     --dataset-name sharegpt \
-#     --dataset-path "${SCRIPT_DIR}/../../datasets/ShareGPT_V3_unfiltered_cleaned_split.json" \
+#     --dataset-path "${BENCH_SCRIPT_DIR}/../../datasets/ShareGPT_V3_unfiltered_cleaned_split.json" \
 #     --num-prompts 100 \
 #     --max-concurrency 16 \
 #     --request-rate inf \
@@ -88,8 +91,8 @@ vllm bench serve --port ${USER_VLLM_PORT} \
 #     --backend vllm \
 #     --endpoint /v1/completions \
 #     --dataset-name spec_bench \
-#     --dataset-path "${SCRIPT_DIR}/data/spec_bench.jsonl" \
-#     --num-prompts 100 \
+#     --dataset-path "${BENCH_SCRIPT_DIR}/data/spec_bench.jsonl" \
+#     --num-prompts 1 \
 #     --max-concurrency 16 \
 #     --request-rate inf \
 #     --spec-bench-output-len 256 \

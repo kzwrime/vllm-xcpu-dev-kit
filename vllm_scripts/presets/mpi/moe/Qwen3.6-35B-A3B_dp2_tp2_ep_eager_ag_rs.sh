@@ -3,7 +3,8 @@
 # Configuration: DP=2, TP=2, PP=1, enforce-eager mode, AG/RS EP
 # MPI Processes: 4 (DP * TP * PP = 2 * 2 * 1)
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../"
+SCRIPT_DIR="$(realpath "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="${SCRIPT_DIR%/presets/*}"
 
 export PD_MODE="MIXED"
 source "$SCRIPT_DIR/user_env_template.sh"

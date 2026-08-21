@@ -3,7 +3,8 @@
 # Configuration: DP=1, TP=1, PP=1, enforce-eager mode
 # Speculative decoding: Eagle3 draft length = 3
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../"
+SCRIPT_DIR="$(realpath "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="${SCRIPT_DIR%/presets/*}"
 
 # Keep the same non-MPI mp runtime shape as Qwen3-30B-A3B_dp1_tp1_eager.sh.
 export PD_MODE="NOT_MOE"

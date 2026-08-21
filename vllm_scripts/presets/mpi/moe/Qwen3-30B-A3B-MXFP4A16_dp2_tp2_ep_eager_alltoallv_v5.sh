@@ -1,6 +1,7 @@
 #!/bin/bash
 # Qwen3-30B-A3B MXFP4A16, DP=2 TP=2 EP=4, MPI alltoallv-v5, eager.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../"
+SCRIPT_DIR="$(realpath "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="${SCRIPT_DIR%/presets/*}"
 export PD_MODE="MIXED"
 source "$SCRIPT_DIR/user_env_template.sh"
 export USER_VLLM_EAGER_OR_NOT="--enforce-eager"

@@ -257,6 +257,7 @@ __marimo__/
 **/vllm_profile
 **/logs
 tmp
+work
 
 # Release artifacts
 .release/publish/

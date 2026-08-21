@@ -2,7 +2,8 @@
 # Preset: Qwen3.5-0.8B with DFlash
 # Configuration: DP=1, TP=2, PP=1, enforce-eager mode
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../"
+SCRIPT_DIR="$(realpath "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="${SCRIPT_DIR%/presets/*}"
 export PD_MODE="NOT_MOE"
 source "$SCRIPT_DIR/user_env_template.sh"
 

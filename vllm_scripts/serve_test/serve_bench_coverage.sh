@@ -18,10 +18,10 @@
 # 查看可用模型
 # curl http://localhost:8000/v1/models
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BENCH_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # 加载通用函数
-ENV_FILE="$SCRIPT_DIR/../common.sh"
+ENV_FILE="$BENCH_SCRIPT_DIR/../common.sh"
 if [ -f "$ENV_FILE" ]; then
     echo "loading env file: $ENV_FILE"
     source "$ENV_FILE"
@@ -31,7 +31,7 @@ else
 fi
 
 # 解析命令行参数并加载环境配置
-parse_args_and_load_env "$SCRIPT_DIR/.." "$@"
+parse_args_and_load_env "$BENCH_SCRIPT_DIR/.." "$@"
 
 # Batch Decode 测试
 vllm bench serve --port ${USER_VLLM_PORT} \
@@ -57,3 +57,18 @@ vllm bench serve --port ${USER_VLLM_PORT} \
     --temperature 0.5 \
     --profile \
     --num-prompts 2
+
+# vllm bench serve --port ${USER_VLLM_PORT} \
+#     --model ${USER_VLLM_MODEL} \
+#     --backend vllm \
+#     --endpoint /v1/completions \
+#     --dataset-name spec_bench \
+#     --dataset-path "${BENCH_SCRIPT_DIR}/data/spec_bench.jsonl" \
+#     --num-prompts -1 \
+#     --max-concurrency 16 \
+#     --request-rate inf \
+#     --spec-bench-output-len 256 \
+#     --disable-shuffle \
+#     --spec-bench-category coding \
+#     --ignore-eos \
+#     --save-result

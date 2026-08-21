@@ -1,6 +1,7 @@
 #!/bin/bash
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../"
+SCRIPT_DIR="$(realpath "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="${SCRIPT_DIR%/presets/*}"
 
 export PD_MODE="MIXED"
 source "$SCRIPT_DIR/user_env_template.sh"
@@ -8,6 +9,7 @@ source "$SCRIPT_DIR/user_env_template.sh"
 export TORCH_XCPU_ENABLE_CHECK=0
 # export USER_VLLM_EAGER_OR_NOT="--enforce-eager"
 export USER_VLLM_MODEL="amd/GLM-5.2-MXFP4"
+export VLLM_XCPU_QUARK_MXFP4_FORCE_W4A16=1
 export USER_VLLM_DATA_PARALLEL_SIZE=2
 export USER_VLLM_TP_SIZE=2
 export USER_VLLM_PP_SIZE=1

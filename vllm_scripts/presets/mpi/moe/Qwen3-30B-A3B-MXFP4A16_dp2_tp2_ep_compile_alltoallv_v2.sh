@@ -1,6 +1,7 @@
 #!/bin/bash
 # Qwen3-30B-A3B MXFP4A16, DP=2 TP=2 EP=4, MPI alltoallv-v2, compile.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../"
+SCRIPT_DIR="$(realpath "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="${SCRIPT_DIR%/presets/*}"
 export PD_MODE="MIXED"
 source "$SCRIPT_DIR/user_env_template.sh"
 export TORCH_XCPU_ENABLE_CHECK=0

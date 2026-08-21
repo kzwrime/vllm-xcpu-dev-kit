@@ -9,7 +9,8 @@
 #   an immediate rearrangement so the second bench run benefits from it
 # - num_redundant_experts=32 for better load distribution
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../"
+SCRIPT_DIR="$(realpath "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="${SCRIPT_DIR%/presets/*}"
 
 # 在加载模板前设置独立配置项
 export PD_MODE="MIXED"
