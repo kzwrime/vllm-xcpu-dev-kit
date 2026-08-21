@@ -25,20 +25,22 @@ usage() {
 用法:
   ./run_vllm_test.sh -e presets/serial/Qwen3-0.6B_dp1_tp1_eager.sh
   ./run_vllm_test.sh --pd -e presets/mpi/moe/Qwen3-30B-A3B_dp2_tp2_ep_eager_alltoallv_v2.sh --multi-test
+  ./run_vllm_test.sh --multimodal-test -e presets/serial/Qwen3.5-0.8B_dp1_tp1_eager_multimodal.sh
 
 选项:
   -e <preset_file>   指定预设文件路径
   --no-test          只启动服务，不运行测试
   --multi-test       启动服务后运行 serve_test/test_multl_stream.py
+  --multimodal-test  启动服务后运行 serve_test/test_multimodal.py
   --multi-test-max-tokens NUM
                      multi test 每个请求的最大输出 token 数，默认 16
   --multi-test-temperature NUM
                      multi test 采样温度，默认 0.7；设为 0 时使用 greedy 解码
   --bench            启动服务后运行 bench
   --coverage         启动服务后运行 coverage bench，并 dump shapes
-  --profile          在普通测试或 multi test 前后调用 vLLM profiler
+  --profile          在普通测试、multi test 或 multimodal test 前后调用 vLLM profiler
   --test-timeout SECONDS
-                     测试 / multi test / bench 最长运行时间（秒），默认不限制
+                     测试 / multi test / multimodal test / bench 最长运行时间（秒），默认不限制
   --pd               以 P/D 分离模式运行
   --launcher MODE    强制指定启动方式: auto | mp | mpi
   --auto-port        如果 USER_VLLM_PORT 被占用，则从该端口开始寻找空闲端口
@@ -48,7 +50,7 @@ usage() {
   VLLM_TEST_LOG_DIR   本次运行的日志根目录，默认 <vllm_scripts>/logs
   VLLM_TEST_MAX_WAIT   服务启动最大等待时间（秒），默认 300
   RUN_VLLM_TEST_TIMEOUT
-                       测试 / multi test / bench 最长运行时间（秒），默认不限制
+                       测试 / multi test / multimodal test / bench 最长运行时间（秒），默认不限制
   RUN_VLLM_TEST_AUTO_PORT
                        设为 1/true/yes/on 时等价于 --auto-port
 USAGE
@@ -93,6 +95,10 @@ while [ $# -gt 0 ]; do
             ;;
         --multi-test)
             TEST_MODE="multi"
+            shift
+            ;;
+        --multimodal-test)
+            TEST_MODE="multimodal"
             shift
             ;;
         --multi-test-max-tokens)
@@ -197,10 +203,10 @@ if [ "$PROFILE_TEST" -eq 1 ]; then
     fi
 
     case "$TEST_MODE" in
-        test|multi)
+        test|multi|multimodal)
             ;;
         *)
-            log_error "--profile 只能和普通测试或 --multi-test 一起使用"
+            log_error "--profile 只能和普通测试、--multi-test 或 --multimodal-test 一起使用"
             exit 1
             ;;
     esac
@@ -514,6 +520,17 @@ run_test() {
         fi
         log_info "测试日志: $TEST_LOG"
         cat_multi_test_results
+    elif [ "$TEST_MODE" = "multimodal" ]; then
+        log_info "运行 multimodal test..."
+        [ -n "$TEST_TIMEOUT" ] && log_info "Multimodal test 最长运行时间: ${TEST_TIMEOUT} 秒"
+        CURRENT_RUN_OUTPUT_LOGS+=("$TEST_LOG")
+        if run_with_test_timeout python "$SCRIPT_DIR/serve_test/test_multimodal.py" "${TEST_ENV_ARGS[@]}" > "$TEST_LOG" 2>&1; then
+            log_success "Multimodal test 完成"
+        else
+            TEST_EXIT_CODE=$?
+            log_test_exit "Multimodal test" "$TEST_EXIT_CODE"
+        fi
+        log_info "测试日志: $TEST_LOG"
     elif [ "$TEST_MODE" = "bench" ]; then
         log_info "运行 bench..."
         [ -n "$TEST_TIMEOUT" ] && log_info "Bench 最长运行时间: ${TEST_TIMEOUT} 秒"
@@ -617,7 +634,7 @@ fi
 echo ""
 log_info "日志文件位置:"
 launcher_print_service_locations
-if [ "$TEST_MODE" = "test" ] || [ "$TEST_MODE" = "multi" ]; then
+if [ "$TEST_MODE" = "test" ] || [ "$TEST_MODE" = "multi" ] || [ "$TEST_MODE" = "multimodal" ]; then
     log_info "  Test:  $TEST_LOG"
 elif [ "$TEST_MODE" = "bench" ] || [ "$TEST_MODE" = "coverage" ]; then
     log_info "  Bench: $BENCH_LOG"
