@@ -39,6 +39,8 @@ vllm_scripts/presets/serial/Qwen3.5-0.8B_dp1_tp1_eager.sh
 ./run_vllm_test.sh -e presets/serial/dflash/Qwen3.5-4B_dp1_tp1_eager_dflash_4.sh --multi-test
 ```
 
+日志一般在 ./vllm_scripts/logs
+
 # torch_mcpu 内存保护
 
 常规测试、测试性能相关问题时，应当修改 torch_mcpu 的 build.sh，添加 export TORCH_MCPU_ENABLE_MEMORY_PROTECTION="OFF"，然后重新编译。以提高运行速度。然后重编其他库。
