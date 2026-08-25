@@ -480,7 +480,7 @@ launcher_collect_error_details() {
         # Log levels and exception names are case-sensitive.  A case-insensitive
         # scan misclassifies benign DEBUG messages containing ordinary prose
         # such as "An error happened while trying to locate the file".
-        error_details=$(grep -HnE "(^|[^[:alnum:]_])(ERROR|CRITICAL|FATAL)([^[:alnum:]_]|$)|Traceback \(most recent call last\)|RuntimeError:|AssertionError:|ValueError:|KeyError:|TypeError:|ImportError:|ModuleNotFoundError:|Segmentation fault|Fatal Python error|terminate called after throwing|c10::Error|Exception raised from|ServerDisconnectedError|ConnectionRefusedError|Connection reset by peer|Aborted" "${files[@]}" 2>/dev/null | head -n 8 || true)
+        error_details=$(grep -HnE "(^|[^[:alnum:]_])(ERROR|CRITICAL|FATAL)([^[:alnum:]_]|$)|Traceback \(most recent call last\)|RuntimeError:|AssertionError:|ValueError:|KeyError:|TypeError:|ImportError:|ModuleNotFoundError:|Segmentation fault|Fatal Python error|terminate called after throwing|c10::Error|Exception raised from|ServerDisconnectedError|ConnectionRefusedError|Connection reset by peer|Aborted" "${files[@]}" 2>/dev/null | grep -vE 'Qwen3VLVideoProcessorInitKwargs.*but not documented\.' | head -n 8 || true)
     fi
 
     printf '%s' "$error_details"
