@@ -179,6 +179,61 @@ P/D 模式下，测试应使用启动日志中打印的 proxy preset，例如：
 ./serve_test/serve_test_template.sh -e logs/pd/<run-id>/proxy.sh
 ```
 
+### 单独运行 multimodal test
+
+`--multimodal-test` 不使用普通的 `serve_test_template.sh`，而是调用
+`serve_test/test_multimodal.py`。需要拆开启动和测试时，可以使用两个终端：
+
+```bash
+# 终端 1：只启动 multimodal 服务
+cd vllm_scripts
+./run_vllm_test.sh --no-test --launcher mp \
+  -e presets/serial/Qwen3.5-4B_dp1_tp1_eager_multimodal.sh
+```
+
+服务就绪后，在另一个终端运行：
+
+```bash
+# 终端 2：单独运行 multimodal test
+cd vllm_scripts
+python ./serve_test/test_multimodal.py \
+  -e presets/serial/Qwen3.5-4B_dp1_tp1_eager_multimodal.sh
+```
+
+测试脚本会从 preset 读取 `USER_VLLM_MODEL` 和 `USER_VLLM_PORT`，向
+`/v1/models` 检查模型是否就绪，然后使用仓库内的两张固定 PNG 调用
+`/v1/chat/completions` 并校验输出。
+
+也可以完全绕过 wrapper，直接启动底层服务：
+
+```bash
+# 终端 1
+./serve/serve_mp_template.sh \
+  -e presets/serial/Qwen3.5-4B_dp1_tp1_eager_multimodal.sh
+
+# 终端 2
+python ./serve_test/test_multimodal.py \
+  -e presets/serial/Qwen3.5-4B_dp1_tp1_eager_multimodal.sh
+```
+
+如果启动时使用了 `--auto-port`，另一个终端不会自动继承 wrapper 进程中的
+运行时端口覆盖。此时应从启动日志中找到实际 OpenAI API 端口，并显式传入：
+
+```bash
+python ./serve_test/test_multimodal.py \
+  -e presets/serial/Qwen3.5-4B_dp1_tp1_eager_multimodal.sh \
+  --api-url http://127.0.0.1:<实际端口>/v1
+```
+
+单独运行时，`--timeout` 表示每个 HTTP 请求的超时时间，而统一入口的
+`--test-timeout` 表示整个测试进程的最长运行时间：
+
+```bash
+python ./serve_test/test_multimodal.py \
+  -e presets/serial/Qwen3.5-4B_dp1_tp1_eager_multimodal.sh \
+  --timeout 300
+```
+
 ## P/D 分离模式展开
 
 统一入口：
