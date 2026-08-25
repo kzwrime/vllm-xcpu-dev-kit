@@ -26,7 +26,7 @@ python3 scripts/generate_update_notes.py --generate-template
 - 跨大版本、从新主线建立开发分支而导致历史不连续时，自动改按 `origin/main..HEAD` 记录当前分支相对 main 的提交，并在说明中标注基线切换。若仓库没有 `origin/main`，则尝试本地 `main`。
 - 如需指定其他主线引用，使用 `--vllm-main-ref <ref>`，例如 `--vllm-main-ref upstream/main`。
 
-该命令还会同时生成 `.release/repository_versions_currently.json`，其中 `repositories[].version` 是各仓库当前 `HEAD`。如需更改该文件位置，可使用 `--current-versions-output`。
+该命令还会同时生成 `.release/repository_versions_currently.json`，其中 `repositories[].version` 是各仓库当前 `HEAD`。该文件是供人工核对的临时候选快照，已被 `.gitignore` 忽略，不作为自动化基线，也不应提交；正式发布基线只通过 `--update-versions` 写入 `.release/repository_versions.json`。如需更改候选快照位置，可使用 `--current-versions-output`。
 
 ## `torch_xcpu` 算子变更编写规则
 

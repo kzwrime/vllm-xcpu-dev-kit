@@ -260,4 +260,5 @@ tmp
 work
 
 # Release artifacts
+.release/repository_versions_currently.json
 .release/publish/

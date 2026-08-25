@@ -86,6 +86,30 @@ class ReleaseScriptsTest(unittest.TestCase):
         self.assertIn("skip vllm patch", stderr.getvalue())
         self.assertEqual(list(output_dir.glob("*.patch")), [])
 
+    def test_contiguous_vllm_patch_does_not_require_repository_helper(self) -> None:
+        head = self._commit_file("feature.txt", "feature\n", "add feature")
+        repository = {
+            "name": "vllm",
+            "path": str(self.repo),
+            "version": self.initial,
+        }
+        output_dir = self.repo / "publish"
+        output_dir.mkdir()
+
+        patch = package_release_publish.create_vllm_patch(
+            repository,
+            output_dir=output_dir,
+            release_version="20990101",
+        )
+
+        self.assertIsNotNone(patch)
+        assert patch is not None
+        self.assertEqual(
+            patch.name,
+            f"vllm_20990101_{head[:6]}_{head[:6]}.patch",
+        )
+        self.assertIn("Subject: [PATCH] add feature", patch.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

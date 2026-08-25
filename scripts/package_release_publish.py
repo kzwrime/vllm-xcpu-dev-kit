@@ -202,6 +202,7 @@ def create_vllm_patch(
     repository: dict[str, Any],
     *,
     output_dir: Path,
+    release_version: str | None = None,
 ) -> Path | None:
     repo_path = resolve_repo_path(repository)
     base_commit = repository["version"]
@@ -219,18 +220,17 @@ def create_vllm_patch(
     start_short = short_commit(repo_path, start_commit)
     end_short = short_commit(repo_path, end_commit)
 
-    generated_name = f"vllm_{dt.date.today().strftime('%Y%m%d')}_{start_short}_{end_short}.patch"
-    generated_path = repo_path / generated_name
+    patch_version = release_version or dt.date.today().strftime("%Y%m%d")
+    generated_name = f"vllm_{patch_version}_{start_short}_{end_short}.patch"
     output_path = output_dir / generated_name
-    if generated_path.exists():
-        generated_path.unlink()
     if output_path.exists():
         output_path.unlink()
 
-    run(["bash", "git-format-patch.sh", start_commit, end_commit], cwd=repo_path)
-    if not generated_path.exists():
-        raise RuntimeError(f"{repo_path / 'git-format-patch.sh'} did not create {generated_path}")
-    shutil.move(str(generated_path), str(output_path))
+    patch = run(
+        ["git", "format-patch", f"{start_commit}^..{end_commit}", "--stdout"],
+        cwd=repo_path,
+    ).stdout
+    output_path.write_bytes(patch)
     return output_path
 
 
@@ -265,7 +265,11 @@ def package_release(manifest_path: Path, output_dir: Path, release_version: str)
             )
         )
         if name == VLLM_REPOSITORY_NAME:
-            vllm_patch = create_vllm_patch(repository, output_dir=output_dir)
+            vllm_patch = create_vllm_patch(
+                repository,
+                output_dir=output_dir,
+                release_version=release_version,
+            )
             if vllm_patch is not None:
                 artifacts.append(vllm_patch)
     manifest_output = output_dir / PUBLISHED_MANIFEST_NAME
