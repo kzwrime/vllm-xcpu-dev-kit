@@ -44,7 +44,7 @@ export VLLM_USE_XCPU_TOPK_SOFTMAX=1
 export VLLM_USE_XCPU_TOPK_TOPP_SAMPLER=1
 export VLLM_USE_V2_MODEL_RUNNER="${VLLM_USE_V2_MODEL_RUNNER:-1}"
 export VLLM_XCPU_USE_FUSED_DOT_SIGMOID_MUL_ADD=0
-export VLLM_XCPU_FUSE_GDN_IN_PROJ_QKVZBA=0
+export VLLM_XCPU_FUSE_GDN_IN_PROJ_QKVZBA="${VLLM_XCPU_FUSE_GDN_IN_PROJ_QKVZBA:-1}"
 export VLLM_XCPU_USE_FUSED_FFN=0
 
 # 设置此选项以避免 torch.compile 发生失败
@@ -95,7 +95,7 @@ _VLLM_OPTIONAL_ARGS+=' --profiler-config {"profiler":"torch","torch_profiler_dir
 # _VLLM_OPTIONAL_ARGS+=' --speculative-config {"model":"/weight/qwen/Qwen3.5-4B-DFlash","num_speculative_tokens":2,"method":"dflash"}'
 
 # 开启 GDN compile 优化
-export VLLM_XCPU_GDN_COMPILE=1
+export VLLM_XCPU_GDN_COMPILE="${VLLM_XCPU_GDN_COMPILE:-1}"
 
 # 根据 PD_MODE 自动设置配置
 case ${PD_MODE} in
