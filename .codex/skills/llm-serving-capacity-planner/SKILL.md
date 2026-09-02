@@ -38,6 +38,15 @@ The user should provide the startup log from an SGLang or vLLM serving instance.
 - `max_total_num_tokens=XX, ... max_running_requests=XX, ... available_gpu_mem=XX GB`
 - `server_args=ServerArgs(...)` (for serving parameters)
 
+Current vLLM V1 logs instead expose:
+
+- `Initial free memory: ...; Requested memory: ...`
+- `Model loading took ... GiB`
+- `Available KV cache memory: ... GiB`
+- `Graph capturing finished ... took ... GiB`
+- `GPU KV cache size: ... tokens`
+- `Maximum concurrency for ... tokens per request: ...x`
+
 If the log is from a running instance, capture it by redirecting stdout/stderr to a file at launch time.
 
 ### Step 2: Optionally capture nvidia-smi data
@@ -75,6 +84,10 @@ The analyzer prints:
 3. **KV pool detail**: pool configuration, KV dtype, replication factor, per-token byte calculation
 4. **Concurrency estimate**: max concurrent requests for different token lengths
 5. **Tuning notes**: configuration changes that may increase capacity
+
+For vLLM, the report also includes a `vLLM Startup Evidence` section. Values
+that are not present in the log stay unknown; do not translate them into
+SGLang-only fields.
 
 ## When To Use It
 
@@ -116,11 +129,21 @@ Include:
 5. **Concurrency estimate table**: request token length / token-limit / request-limit / max concurrent
 6. **Tuning notes** based on free memory and configuration
 
+## 2026-08-23 Runtime Notes
+
+SGLang `v0.5.18` consolidates compiled-kernel caches under `SGLANG_CACHE_DIR`.
+The first launch after an upgrade can look like extra "other" memory and a
+longer startup because Triton / FlashInfer / DeepGEMM / Inductor recompile
+once. Overlapped checkpoint staging (`--startup-weight-load-mode overlap`)
+also changes the startup memory curve: weight pages and CUDA-graph capture
+can overlap, so do not treat a shorter load-weight interval as a smaller
+weight footprint.
+
 ## Known Limitations
 
 | Limitation | Detail | Workaround |
 |---|---|---|
-| SGLang-specific patterns | Currently only SGLang log patterns are fully supported | vLLM patterns to be added as encountered |
+| Framework-specific checkpoints | SGLang and vLLM expose different memory checkpoints, so some fields are not comparable one-to-one | Report unknown fields and compare only shared, explicit evidence |
 | SWA compression models | Per-token KV bytes cannot be independently calculated from model config for CSA/HCA attention — the framework's internal SWA window parameters are needed | Use `bytes_per_full_token` from the log directly |
 | DeepGEMM JIT memory | The analyzer categorizes DeepGEMM JIT compilation memory as "other" because it is not explicitly reported in the log | Compare with nvidia-smi total for accurate accounting |
 | PP (Pipeline Parallelism) | Memory decomposition is per-rank; PP configurations may have uneven memory across stages | Specify `--target-rank` for each PP stage |

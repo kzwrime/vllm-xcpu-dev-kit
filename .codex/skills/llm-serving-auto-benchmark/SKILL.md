@@ -1,14 +1,14 @@
 ---
 name: llm-serving-auto-benchmark
-description: Framework-independent LLM serving benchmark skill for comparing SGLang, vLLM, TensorRT-LLM, or another serving framework. Use when a user wants to find the best deployment command for one model across multiple serving frameworks under the same workload, GPU budget, and latency SLA.
+description: Framework-independent LLM serving benchmark skill for comparing SGLang, vLLM, TensorRT-LLM, TokenSpeed, or another serving framework. Use when a user wants to find the best deployment command for one model across multiple serving frameworks under the same workload, GPU budget, and latency SLA.
 ---
 
 # LLM Serving Auto Benchmark
 
 ## Overview
 
-Use this skill to compare LLM serving frameworks such as SGLang, vLLM, and
-TensorRT-LLM for the same model and workload.
+Use this skill to compare LLM serving frameworks such as SGLang, vLLM,
+TensorRT-LLM, and TokenSpeed for the same model and workload.
 
 Use a config-driven workflow:
 
@@ -23,11 +23,12 @@ Use a config-driven workflow:
 For model-specific starting points, prefer the shipped configs in
 `configs/cookbook-llm/`. They define a framework-neutral LLM serving cookbook
 model set and translate each entry into framework-native SGLang, vLLM, and
-TensorRT-LLM server flags. Validate those configs before a real run:
+TensorRT-LLM, and TokenSpeed server flags. Validate those configs before a real
+run:
 
 ```bash
 python skills/llm-serving-auto-benchmark/scripts/validate_cookbook_configs.py \
-  skills/llm-serving-auto-benchmark/configs/cookbook-llm
+  skills/llm-serving-auto-benchmark/configs/cookbook-llm/*.yaml
 ```
 
 If you have captured target-environment `--help` files, add
@@ -37,13 +38,18 @@ servers.
 
 Prefer native tooling when it gives better coverage:
 
-- SGLang: `python -m sglang.auto_benchmark` when available, otherwise
+- SGLang: current public cookbooks use `sglang serve`; `python -m
+  sglang.launch_server` remains accepted. Prefer `python -m
+  sglang.auto_benchmark` when available, otherwise
   `python -m sglang.bench_serving`
 - vLLM: `vllm bench sweep serve` for server-parameter sweeps, otherwise
   `vllm serve` plus `vllm bench serve`
 - TensorRT-LLM: `trtllm-serve` for the OpenAI-compatible server plus the
   TensorRT-LLM serving benchmark client or a common OpenAI-compatible benchmark
   client
+- TokenSpeed: `tokenspeed serve` for the OpenAI-compatible server plus
+  `tokenspeed bench serve` or the same OpenAI-compatible benchmark client used
+  for the other frameworks
 
 TensorRT-LLM has one hard scope rule in this skill: the server backend is fixed
 to `trtllm-serve serve --backend pytorch`. Do not search TensorRT-LLM backend
@@ -55,6 +61,11 @@ OpenAI-compatible modes such as `--backend openai` or `--backend openai-chat`.
 
 Only pick a winner after each requested framework has had its main serving knobs
 tuned.
+
+Framework selection is caller-controlled. If the caller explicitly supplies a
+framework list, benchmark only those enabled frameworks. Do not silently add
+TensorRT-LLM or TokenSpeed just because cookbook configs or history docs exist;
+record omitted frameworks as user-excluded, not unsupported.
 
 The parameter lists in this skill are not a compatibility contract. They are
 version-sensitive candidate knob families. Before every real run, record the
@@ -79,8 +90,8 @@ available, and nothing more:
 Do not assume a specific operator host name inside this skill's own workflow.
 The concrete SSH wiring, container names, workspace paths, and HF token plumbing
 for a given box live in operator-side per-host skills; this skill only requires
-that the caller can reach a shell inside a container with `sglang`, `vllm`, or
-`tensorrt_llm` installed.
+that the caller can reach a shell inside a container with the requested
+framework installed.
 
 Reference files are optional and version-sensitive. Treat historical flag notes
 as evidence from one image, not as a compatibility guarantee for the next run.
@@ -95,6 +106,33 @@ path can finish quickly.
 | --- | --- | --- | --- | --- |
 | `Qwen/Qwen3-8B` | 2x H100, TP=2 | `sglang_mem086`, 21.64 req/s, 1385.05 output tok/s, mean TTFT 70.54 ms | `vllm_mem080`, 22.88 req/s, 1464.25 output tok/s, mean TTFT 60.56 ms | `/data/bbuf/validate/core_skill_validation_20260501/qwen3_8b/auto_benchmark` |
 | `mistralai/Mistral-7B-Instruct-v0.3` | 2x H100, TP=2 | `sglang_mem080`, 24.09 req/s, 1541.92 output tok/s, mean TTFT 61.47 ms | `vllm_mem090`, 24.76 req/s, 1584.54 output tok/s, mean TTFT 58.63 ms | `/data/bbuf/validate/core_skill_validation_20260501/mistral_7b_instruct_v03/auto_benchmark` |
+
+Additional B200 smoke validation on `2026-06-27` used `GPUC5A6`
+(`cirrascale-gpuc5a6`) in container `sglang_bbuf`, artifact root
+`/data/bbuf/ai_infra_skills_pr72_20260627`. The target image had SGLang
+`0.5.13.post1` installed, but no `vllm`, `trtllm-serve`, or `tokenspeed`
+CLI in that container, so only SGLang was model-smoked and the missing
+frameworks were recorded as environment gaps, not as unsupported frameworks.
+
+| Model | GPU | Result |
+| --- | --- | --- |
+| `Qwen/Qwen2.5-0.5B-Instruct` | 1x B200 | 5 random prompts completed; GPU memory returned to 0 MiB |
+| `Qwen/Qwen2.5-1.5B-Instruct` | 1x B200 | 5 random prompts completed; GPU memory returned to 0 MiB |
+| `Qwen/Qwen2.5-3B-Instruct` | 1x B200 | 5 random prompts completed; GPU memory returned to 0 MiB |
+| `Qwen/Qwen2.5-7B-Instruct` | 1x B200 | 5 random prompts completed; GPU memory returned to 0 MiB |
+| `Qwen/Qwen3-8B` | 1x B200 | 5 random prompts completed; GPU memory returned to 0 MiB |
+
+The 2026-08-23 source refresh did **not** recapture those rows. The assigned
+B200 host (`lmsys@40.142.96.44`) closed SSH on port 22, so there is no new
+GPU smoke, MiniMax-M3 revalidation, or four-framework CLI help capture from
+this date. Treat every 2026-08-23 flag or recipe note as a source check, not
+as a replacement for the 2026-06-27 B200 evidence.
+
+The same B200 refresh ran the cookbook validator against captured help
+snapshots. Missing-command help captures such as `trtllm-serve_missing.txt`
+are now ignored unless at least one real `--flag` is present, preventing a
+missing framework binary from being misreported as hundreds of unsupported
+framework flags.
 
 ## Skill Scope
 
@@ -154,16 +192,70 @@ before starting a long sweep.
 - vLLM `--enable-dbo` only works when the target vLLM image is built with a
   supported all2all backend. Keep DBO out of the default candidate list unless
   the operator has verified the image.
-- vLLM `--max-num-partial-prefills > 1` is model- and runtime-gated. Keep `1`
-  in the default pass; raise only after a preflight with the actual model.
-- TensorRT-LLM current mainline was rechecked at `7021547` on 2026-05-15, and
-  the serving flag evidence from `b9e1945` still applies because newer commits
-  only touched CI/test-waive files. That evidence accepts both
-  `--kv_cache_free_gpu_memory_fraction` and `--free_gpu_memory_fraction` as
-  server aliases. Keep
-  `kv_cache_free_gpu_memory_fraction` in shipped configs because it maps
-  directly to the `KvCacheConfig` field and remains compatible with the older
-  validation image that rejected the shorter alias.
+- vLLM still exposes `--long-prefill-token-threshold`; verify the exact flag
+  against the target image before searching it.
+- SGLang current mainline was checked on 2026-08-23 at
+  `eec794bce0808ae26cc1dcb84a56b65d2df82af5` (released tags `v0.5.17` on
+  2026-08-08 and `v0.5.18` on 2026-08-22). Record these as source notes, not
+  as GPU-smoked winners:
+  - public cookbooks now emit `sglang serve`; keep capturing
+    `python -m sglang.launch_server --help` until the target image drops it
+  - v0.5.17 adds opt-in `--enable-session-radix-cache` plus `/close_session`,
+    experimental `--dwdp-size` MoE prefill, and a weight-cache daemon
+  - v0.5.18 moves compiled-kernel caches under `SGLANG_CACHE_DIR` (first
+    launch after upgrade recompiles once) and adds
+    `--startup-weight-load-mode overlap`
+  - v0.5.18 CUDA images require torch 2.13.0 / triton 3.7.1; treat older
+    torch 2.9/2.11 images as stale before scoring them. `--torchao-config`
+    is removed. NVFP4 + `flashinfer_trtllm` MoE deferred finalize is on by
+    default for the DeepSeek-V3 family
+  - FlashInfer MNNVL pure-allreduce is auto-on for DeepSeek-V3/V3.2/V4;
+    elsewhere it is `--enable-flashinfer-pure-allreduce`
+  - v0.5.18 known issues: Kimi K3 MLA gate→QKV-A GEMM fusion landed then
+    reverted (`#33623` / `#34642`); AMD GLM-5.2 fused shared-expert append
+    also reverted (`#31323` / `#35105`); v0.5.17 gRPC parallel request
+    lifecycle tracking was reverted (`#34160`)
+- vLLM current mainline was checked on 2026-08-23 at
+  `bbe8b23e1a2b32a96240b27f63255170d09ef144` (released tags `v0.27.0` on
+  2026-08-10 and `v0.27.1` on 2026-08-11). It includes the earlier PR
+  `#46735` CUDA-graph Triton / NVFP4-emulation MoE fix, plus the Kimi K3
+  stack that landed in 0.27.0. If a target image predates either, treat
+  Triton-MoE graph-capture failures, eager fallback, or missing Kimi K3
+  loaders as an image/runtime issue before scoring it against SGLang.
+- The same vLLM refresh includes PR `#44800` (`VLLM_GPU_SYNC_CHECK`). For
+  sync-heavy profiler rows, record whether the target image exposes this debug
+  knob before labeling the gap as kernel-local.
+- vLLM PR `#42669` extends FlashAttention-4 SM100 support to head dimension
+  256, while PR `#49982` fixes MLA padding, grouped top-k routing, and routed
+  scaling in the Transformers modeling backend. Treat images predating either
+  change as stale when those exact paths affect a row; neither merge is itself
+  benchmark evidence.
+- The same vLLM head lists `Qwen/Qwen3.8-27B` in the model registry, but the
+  public HF `config.json` uses `model_type=qwen3_5`. Do not invent a separate
+  vLLM Qwen3.8 implementation tree; compare that checkpoint against the
+  existing Qwen3.5 loader. The four-framework cookbook still leaves vLLM
+  disabled until a target-image smoke exists.
+- TensorRT-LLM mainline was checked on 2026-08-23 at
+  `da38c1d2e0dffd073b7dfb6d69e15ee7b45d84a9`. Keep
+  `kv_cache_free_gpu_memory_fraction` in shipped configs until the target
+  `trtllm-serve serve --help` proves a shorter alias is accepted.
+  Same-day mainline also includes Qwen3.5/3.8 wave-2 (`#17700`), Qwen3.8-27B
+  FP8 VLM quant-config cleanup (`#17786`), Kimi K3 MLA decode backend
+  selection (`#17800`), and Kimi K3 NVFP4 MegaMoE SiTU (`#17865`). Record
+  those as source notes only; they do not enable a four-framework cookbook
+  lane without target-image smoke.
+- TensorRT-LLM 1.2+ and current 1.3.0rc line have removed the TensorRT engine
+  backend. PyTorch is the sole server backend, which matches this skill's
+  existing `trtllm-serve serve --backend pytorch` pin. Images that still
+  advertise `--backend tensorrt` are stale; do not search that backend.
+- TensorRT-LLM current mainline includes PR `#11685` and PR `#15546`, which
+  affect KV block eviction and KV block-offset host staging. If a target image
+  predates them, record stale-runtime risk when cache pressure, block-offset
+  races, or prefix/KV residency affect benchmark rows.
+- TensorRT-LLM PR `#16805` fixes disaggregated draft-token adoption and
+  sequence-length accounting; PR `#16763` unifies phase-1 CUDA graph cleanup
+  before final KV-cache allocation. Record the image SHA when disaggregated
+  speculative output or startup memory differs across runs.
 - The historical TensorRT-LLM 1.0.0 multi-GPU PyTorch-backend validation used
   `--ipc=host`, `--ulimit memlock=-1`, `--ulimit stack=67108864`,
   `--shm-size=16g`, and `NCCL_IB_DISABLE=1` (for single-node) or an equivalent
@@ -174,6 +266,30 @@ before starting a long sweep.
   backend, which is pinned to `pytorch` by this skill.
 - `trtllm` `benchmark_serving --dataset-name random` silently falls back to
   ShareGPT sampling without `--random-ids` (or `--download-path`).
+- TokenSpeed is a fast-moving engine. Current mainline checked on 2026-08-23 at
+  `lightseekorg/tokenspeed@2706143a8669d50a8f56466b9d340b86922b8f2d` exposes `tokenspeed serve`,
+  `tokenspeed bench`, `tokenspeed env`, and `tokenspeed version`. Its server
+  command is `tokenspeed serve <model>`, not a `python -m tokenspeed`
+  entrypoint.
+- TokenSpeed PR `#821` documents Kimi K3 FlatKV, KDA/MLA, and B300/AMD
+  deployment contracts. Keep it as source guidance only: the recipe contains
+  platform-specific sidecars, checkpoint-layout requirements, and explicit
+  output-quality and validation caveats, so it does not enable a generic benchmark lane
+  without target-image and model smoke evidence. After 2026-07-28, TokenSpeed
+  also merged scheduler 0.1.9 (`#1208`), Kimi K3 unrouted-decode projection
+  routing (`#1200`), and an MLA FP8 KV packing fallback (`#1199`). Record the
+  target SHA; do not treat those merges as a benchmark winner.
+- TokenSpeed's SGLang/vLLM-compatible parameter names are not always identical
+  in meaning. Prefer `--max-model-len`, `--max-num-seqs`,
+  `--chunked-prefill-size`, `--max-prefill-tokens`, `--max-total-tokens`,
+  `--tensor-parallel-size`, `--attn-tp-size`, `--moe-tp-size`,
+  `--enable-expert-parallel`, `--attention-backend`, `--moe-backend`,
+  `--kv-cache-dtype`, and speculative flags only after confirming the target
+  `tokenspeed serve --help` output.
+- TokenSpeed has an agentic benchmark path in-tree. When the workload is
+  multi-turn or tool-heavy, add a TokenSpeed-native `tokenspeed bench serve` or
+  EvalScope-style run beside the common OpenAI-compatible client and record both
+  result files in the same normalized row set.
 - `max_seq_len` / `max_model_len` / `context_length` candidates must cover
   `max(input_len + output_len)` across every scenario, including values inside
   `search_space`, not just the baseline. The validator checks this; do not
@@ -208,9 +324,11 @@ Use these rules throughout the benchmark:
 
 ### 1. Preflight
 
-Verify all requested frameworks before starting a search:
+Verify SGLang plus all requested comparison frameworks before starting a search.
+Run only the commands for the requested framework set:
 
 ```bash
+sglang serve --help
 python -m sglang.launch_server --help
 python -m sglang.bench_serving --help
 vllm serve --help
@@ -220,6 +338,9 @@ vllm bench serve --help=all
 vllm bench sweep serve --help=all
 trtllm-serve serve --help
 python -m tensorrt_llm.serve.scripts.benchmark_serving --help
+tokenspeed serve --help
+tokenspeed bench --help
+tokenspeed bench serve --help
 ```
 
 Use the framework-specific `--help` output in the target environment as the
@@ -236,6 +357,10 @@ running the benchmark. Do not silently pass unknown flags.
 For TensorRT-LLM, also confirm that `trtllm-serve serve --help` accepts
 `--backend pytorch`. If it does not, mark TensorRT-LLM unsupported in that
 environment rather than falling back to a different server backend.
+
+For TokenSpeed, confirm both the server and benchmark entrypoints because some
+installations alias the binary as `ts`. Record the exact binary used in
+`server_command`.
 
 For each framework, launch a minimal server, confirm `/v1/models` or the native
 model-info endpoint, send one streaming request, run one tiny benchmark with at
@@ -301,8 +426,9 @@ the slow bucket rather than profiling an unrelated synthetic shape.
 
 Before searching any sequence-length limit, compute the largest
 `input_len + output_len` in the dataset. SGLang `context_length`, vLLM
-`max_model_len`, and TensorRT-LLM `max_seq_len` must be at least that value for
-every candidate that is expected to run all scenarios.
+`max_model_len`, TensorRT-LLM `max_seq_len`, and TokenSpeed `max_model_len`
+must be at least that value for every candidate that is expected to run all
+scenarios.
 
 ### 3. Pick A Search Tier
 
@@ -332,6 +458,7 @@ or memory study:
 - SGLang `schedule_policy`
 - vLLM `gpu_memory_utilization`
 - TensorRT-LLM `kv_cache_free_gpu_memory_fraction`
+- TokenSpeed `gpu_memory_utilization`
 
 These are real knobs, but they widen the search quickly and often turn a serving
 comparison into a memory-limit study.
@@ -400,7 +527,7 @@ Version-sensitive vLLM knob families to verify:
 - `max_num_seqs`
 - `max_num_batched_tokens`
 - `max_model_len`
-- `enable_chunked_prefill`, partial prefill limits, and DBO thresholds
+- `enable_chunked_prefill`, `long_prefill_token_threshold`, and DBO thresholds
 - KV cache dtype and block size
 - dtype and quantization settings
 - CUDA graph capture sizes or eager-mode toggles when relevant
@@ -419,9 +546,8 @@ against throughput.
 Keep DBO and all2all backend settings out of the default pass unless the target
 vLLM environment is already set up for them. They are real tuning knobs, but a
 candidate can fail at startup if the required all2all backend is not available.
-Also preflight concurrent partial prefill before raising
-`max_num_partial_prefills` above 1; some model/runtime combinations reject it at
-startup.
+Verify `long_prefill_token_threshold` on the concrete `vllm serve --help=all`
+surface before adding it to a search.
 
 ### 6. Tune TensorRT-LLM
 
@@ -450,11 +576,9 @@ pass `--random-ids`, then confirm the behavior on the target TensorRT-LLM image.
 TensorRT-LLM flag names are especially version-sensitive. In the validated
 TensorRT-LLM 1.0.0 image, the KV-cache memory flag accepted by
 `trtllm-serve serve` was `--kv_cache_free_gpu_memory_fraction`, not
-`--free_gpu_memory_fraction`. Current mainline was rechecked at `7021547` on
-2026-05-15; the newer commits did not touch serving code, so the `b9e1945`
-serving flag evidence still applies: both aliases are accepted and
-`trtllm-serve` still defaults to the PyTorch backend. Always verify flags with
-`trtllm-serve serve --help` before running a search on any GPU target.
+`--free_gpu_memory_fraction`. Current mainline was rechecked at
+`da38c1d2e0dffd073b7dfb6d69e15ee7b45d84a9` on 2026-08-23. Always verify flags
+with `trtllm-serve serve --help` before running a search on any GPU target.
 
 TensorRT-LLM backend policy for this skill:
 
@@ -481,7 +605,80 @@ Search `max_batch_size`, `max_num_tokens`, `max_seq_len`, and validated
 PyTorch-backend config options first. The server backend remains fixed to
 `pytorch`.
 
-### 7. Normalize Results
+### 7. Tune TokenSpeed
+
+Use TokenSpeed as a first-class comparison framework, especially for agentic or
+multi-turn workloads where it may be the strongest non-SGLang baseline:
+
+```bash
+tokenspeed serve <model> \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --tensor-parallel-size <tp> \
+  --gpu-memory-utilization 0.90 \
+  --max-model-len 12288 \
+  --max-num-seqs 64 \
+  --chunked-prefill-size 8192 \
+  --kv-cache-dtype auto \
+  --trust-remote-code
+```
+
+Benchmark either with TokenSpeed's native online serving benchmark:
+
+```bash
+tokenspeed bench serve \
+  --base-url http://127.0.0.1:8000 \
+  --model <model> \
+  --dataset-name random \
+  --random-input-len 1024 \
+  --random-output-len 256 \
+  --num-prompts 80
+```
+
+or with the same OpenAI-compatible client used for the other frameworks.
+When TokenSpeed is a likely leader and profiler handoff will be needed, the
+native benchmark can also arm torch profiling for the same request shape:
+
+```bash
+tokenspeed bench serve \
+  --base-url http://127.0.0.1:8000 \
+  --model <model> \
+  --dataset-name random \
+  --random-input-len 1024 \
+  --random-output-len 256 \
+  --num-prompts 80 \
+  --profile \
+  --profile-num-steps 5 \
+  --extra-body '{"output_dir":"/data/bbuf/profiles/tokenspeed","activities":["CPU","GPU"],"with_stack":true,"profile_id":"ts-bench"}'
+```
+
+If `output_dir` is not supplied, TokenSpeed writes under
+`TOKENSPEED_PROFILER_DIR`, defaulting to `/tmp`.
+
+For large MoE or agentic checkpoints, validate these TokenSpeed knobs before
+adding them to the search:
+
+- `tensor_parallel_size`, `attn_tp_size`, `moe_tp_size`, and
+  `enable_expert_parallel`
+- `attention_backend`, `drafter_attention_backend`, `moe_backend`, and
+  `draft_moe_backend`
+- `max_num_seqs`, `chunked_prefill_size`, `max_prefill_tokens`, and
+  `max_total_tokens`
+- `kv_cache_dtype`, `quantization`, and prefix-cache controls
+- speculative flags such as `speculative_algorithm`, `speculative_num_steps`,
+  and `speculative_num_draft_tokens`
+- `comm_fusion_max_num_tokens`, `enable_allreduce_fusion`, and related
+  communication-fusion flags only after a target-image smoke run
+
+If a TokenSpeed-native agentic config exists for the same model family, run it
+as an additional workload lane rather than replacing the common cross-framework
+scenario. Normalize its result rows with the same schema and mark
+`workload.kind` accordingly.
+
+Keep `gpu_memory_utilization` pinned in the default pass. Search it only when
+the user explicitly wants a capacity study.
+
+### 8. Normalize Results
 
 Write one JSONL row per candidate using the schema in
 [references/result-schema.md](references/result-schema.md). Then run:
@@ -516,6 +713,11 @@ workload, raw/normalized results, CSV or markdown summary, and server logs.
 When SGLang is not the winner, include a profiler handoff note with the slow
 SGLang scenario name and the exact input/output lengths or percentile bucket to
 pass to `llm-torch-profiler-analysis`.
+
+When a candidate uses speculative decoding, prefix cache, offload, or an
+agentic workload, record the optional normalized fields for accept length,
+pre-scheduler time, cache hit rate, and memory residency. The summary script
+will display those columns when present.
 
 Include failed or excluded candidates with reasons. Explain that this table is a
 record of tried configs that were not selected: candidates that failed, were

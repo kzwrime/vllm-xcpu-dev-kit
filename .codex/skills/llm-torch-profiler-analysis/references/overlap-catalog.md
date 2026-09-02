@@ -16,8 +16,8 @@ Use it like this:
 3. If a match exists in the mainline sections, report it as an existing
    overlap family that is missing, disabled, regressed, or unsupported on the
    current backend.
-4. If a match exists only in the `PR-backed / in-flight`
-   section, report it as an upstream overlap pattern, not a novel idea.
+4. If a match exists only in a status-audited PR section, report its explicit
+   open, merged, or closed-unmerged state instead of calling it novel.
 5. Only call an overlap opportunity "new" when no row in this file or
    `fuse-overlap-catalog.md` fits.
 
@@ -26,17 +26,19 @@ necessarily present in the checked-out `sglang` tree, but they should still be
 treated as upstream or analogous kernel-overlap families before labeling an
 overlap opportunity as novel.
 
-Refresh note `2026-04-22`: rescanned current `sglang`, `flashinfer`,
-`TensorRT-LLM`, and `vllm` mainline overlap paths plus rechecked referenced PR
-state via the GitHub API on `2026-04-22`. Closed-unmerged SGLang
-[#22410](https://github.com/sgl-project/sglang/pull/22410) and FlashInfer
-[#2840](https://github.com/flashinfer-ai/flashinfer/pull/2840) were removed
-from the PR-backed sections. SGLang
-[#21877](https://github.com/sgl-project/sglang/pull/21877), FlashInfer
-[#2720](https://github.com/flashinfer-ai/flashinfer/pull/2720), and vLLM
-[#35968](https://github.com/vllm-project/vllm/pull/35968) /
-[#39301](https://github.com/vllm-project/vllm/pull/39301) remain useful
-upstream overlap references as of this refresh.
+Refresh note `2026-08-23`: rechecked official main heads for SGLang
+`eec794bce0808ae26cc1dcb84a56b65d2df82af5`, vLLM
+`bbe8b23e1a2b32a96240b27f63255170d09ef144`, TensorRT-LLM
+`da38c1d2e0dffd073b7dfb6d69e15ee7b45d84a9`, and TokenSpeed
+`2706143a8669d50a8f56466b9d340b86922b8f2d`. Open SGLang `#21877`
+and FlashInfer `#2720` remain status-sensitive references.
+The public Kimi K3 Day-0 PR
+[`sgl-project/sglang#32541`](https://github.com/sgl-project/sglang/pull/32541)
+was audited while open at immutable head
+`4b6e6fc24c27d3621a43013c049d281b54a25ee4`; its side-stream and PDL
+rows remain status-sensitive and shape-gated until merged.
+Closed-unmerged vLLM experiments are retained only when their implementation
+idea remains useful and are labeled as such in the table.
 
 ## 1. LLM / SRT kernel-overlap families
 
@@ -71,11 +73,17 @@ upstream overlap references as of this refresh.
 | TorchInductor compute / communication reorder | compiled traces with compute and comm partially interleaved | `python/sglang/multimodal_gen/runtime/pipelines_core/stages/denoising.py`<br>`python/sglang/multimodal_gen/runtime/pipelines_core/stages/model_specific_stages/mova.py` | `torch._inductor.config.reorder_for_compute_comm_overlap = True` | Existing compile-time reordering may already explain partial overlap in diffusion traces. |
 | Dual-stream diffusion models | two nearby compute branches inside one DiT / UNet block | `python/sglang/multimodal_gen/runtime/models/dits/hunyuan3d.py` | `use_dual_stream = True` | Treat dual-branch diffusion execution as an existing overlap family. |
 
-## 4. PR-backed / in-flight kernel-overlap families
+## 4. Status-audited PR kernel-overlap evidence
 
 | Pattern | Trace keywords | Primary code | Existing path | Skill should conclude |
 | --- | --- | --- | --- | --- |
-| PR `#21877` fused down-GEMM + combine superseding SBO | `enable_fused_grouped_gemm_combine`<br>`combine`<br>`down_gemm` | `PR #21877`<br>`python/sglang/srt/server_args.py`<br>`python/sglang/srt/layers/moe/token_dispatcher/deepep.py` | Fused combine eliminates the standalone combine window, so SBO is intentionally disabled when this path is on | If the trace discussion is about combine overlap, first classify it as this upstream fused-overlap family. |
+| Open PR `#32541` Kimi K3 branch and PDL overlap | `bfa_alt_stream`<br>`gate_alt_stream`<br>`shared_event`<br>`set_mla_kv_concat_q`<br>`enable_pdl` | [`sgl-project/sglang#32541`](https://github.com/sgl-project/sglang/pull/32541)<br>`python/sglang/srt/models/kimi_k3.py`<br>`python/sglang/kernels/ops/attention/set_mla_kv_concat_q.py` | Public Day-0 branch overlaps independent KDA, MLA-gate, and shared-expert branches, and uses a fused MLA prologue as a PDL producer for attention | Treat these as open, shape-gated upstream patterns; first measure available slack, confirm joins and tensor lifetimes, and verify the dispatcher did not select a serialized fallback. |
+| Open PR `#32541` skinny KDA branch vs wide QKVG projection | small `f_a/b` GEMVs near a wide `qkvg` GEMM<br>`bfa_alt_stream` | [`sgl-project/sglang#32541`](https://github.com/sgl-project/sglang/pull/32541)<br>`python/sglang/srt/models/kimi_k3.py::forward_qkvbfg_fused` | The small dependent GEMV chain runs on an auxiliary stream while the wide sibling projection remains on the caller stream; both read the same hidden state and join before beta/forget-gate consumers | Apply only when both branches are independent, the small branch fits inside the wide GEMM's slack, and capture mode can represent the fixed stream/join topology. |
+| Open PR `#32541` MLA output-gate projection vs attention core | `gate_alt_stream`<br>`_precompute_output_gate`<br>`mla_output_gate` | [`sgl-project/sglang#32541`](https://github.com/sgl-project/sglang/pull/32541)<br>`python/sglang/srt/models/kimi_k3.py`<br>`python/sglang/kernels/ops/kimi_k3/mla_output_gate.py` | The gate projection is issued on an auxiliary stream and kept alive until the attention output reaches the gated output projection | Retain the lazy path when graph segmentation or batch size makes the join unsafe or slower; a serialized gate GEMM is not automatically a regression. |
+| Open PR `#32541` shared experts vs routed dispatch / A2A | shared-expert GEMMs beside routed-expert dispatch, A2A, or latent tail<br>`shared_event` | [`sgl-project/sglang#32541`](https://github.com/sgl-project/sglang/pull/32541)<br>`python/sglang/srt/models/kimi_k3.py` | Shared experts are issued after the MoE front on a side stream so their shorter branch hides under routed communication and latent work, then rejoins as late as correctness allows | Starting the side branch earlier can steal bandwidth from the critical front; choose placement from the trace and record tensor lifetime on the consuming stream. |
+| Open PR `#32541` ReplaySSM verify/fold staging | `replayssm_rawv`<br>`replayssm_rawk`<br>`accept_lens`<br>`fold_batched` | [`sgl-project/sglang#32541`](https://github.com/sgl-project/sglang/pull/32541)<br>`python/sglang/kernels/ops/attention/fla/kda_replayssm_spec_decode.py`<br>`python/sglang/kernels/ops/kimi_k3/kda_decode_mtp.py` | Verify stores compact raw inputs without mutating the committed state; one post-sampling batched fold advances all accepted layer/head states | Classify this primarily as dependency and launch elimination, not concurrent-stream overlap; do not schedule the fold before accept lengths are final. |
+| Open PR `#32541` MLA prologue producer-to-attention PDL chain | `set_mla_kv_concat_q`<br>`set_mla_kv_concat_q_fp8`<br>`cudaGridDependencySynchronize`<br>`enable_pdl` | [`sgl-project/sglang#32541`](https://github.com/sgl-project/sglang/pull/32541)<br>`python/sglang/kernels/ops/attention/set_mla_kv_concat_q.py`<br>`python/sglang/kernels/jit/csrc/elementwise/set_mla_kv_concat_q*.cuh` | A fused prologue publishes KV scatter and concatenated/quantized Q data, then permits the dependent attention launch to begin without waiting for the producer grid to retire completely | Treat this as same-stream dependency overlap, not arbitrary launch reordering; producer visibility and trigger placement must be verified in source and with race-sensitive tests. |
+| Open PR `#21877` fused down-GEMM + combine superseding SBO | `enable_fused_grouped_gemm_combine`<br>`combine`<br>`down_gemm` | `PR #21877`<br>`python/sglang/srt/server_args.py`<br>`python/sglang/srt/layers/moe/token_dispatcher/deepep.py` | Fused combine eliminates the standalone combine window, so SBO is intentionally disabled when this path is on | If the trace discussion is about combine overlap, first classify it as this upstream fused-overlap family. |
 
 ## 5. FlashInfer kernel-overlap families
 
@@ -89,11 +97,11 @@ checkout only calls part of that implementation.
 | FlashInfer CuTeDSL MoE aux-stream async-memset overlap | `aux_stream`<br>`main_event`<br>`memset_event`<br>`use_async_memset` | `flashinfer/fused_moe/cute_dsl/fused_moe.py` | Preallocated MoE output is zeroed on an auxiliary CUDA stream while GEMM1 runs on the main stream, then both streams join before finalize | Treat GEMM1 vs output-zero windows as an existing FlashInfer multi-stream overlap family. |
 | FlashInfer green-context SM partition overlap | `split_device_green_ctx`<br>`split_device_green_ctx_by_sm_count`<br>`green_ctx` | `flashinfer/green_ctx.py` | CUDA green contexts partition SMs and create dedicated streams for concurrent kernel families on separate SM slices | Treat SM-partitioned concurrency as an existing FlashInfer overlap mechanism, not a novel scheduler idea. |
 
-## 6. FlashInfer PR-backed / in-flight kernel-overlap families
+## 6. FlashInfer status-audited PR evidence
 
 | Pattern | Trace keywords | Primary code | Existing path | Skill should conclude |
 | --- | --- | --- | --- | --- |
-| PR `#2720` PDL runtime-API migration | `cudaGridDependencySynchronize`<br>`cudaTriggerProgrammaticLaunchCompletion`<br>`inline PTX` | `PR #2720`<br>`include/flashinfer/comm/trtllm_allreduce_fusion.cuh`<br>`include/flashinfer/pos_enc.cuh` | Repo-wide migration preserves the existing PDL overlap family while replacing inline PTX with CUDA runtime APIs across norm, RoPE, attention, and MoE codepaths | Treat PDL-looking launch groups as an upstream FlashInfer overlap family even when implementation details differ across revisions. |
+| Open PR `#2720` PDL runtime-API migration | `cudaGridDependencySynchronize`<br>`cudaTriggerProgrammaticLaunchCompletion`<br>`inline PTX` | `PR #2720`<br>`include/flashinfer/comm/trtllm_allreduce_fusion.cuh`<br>`include/flashinfer/pos_enc.cuh` | Repo-wide migration preserves the existing PDL overlap family while replacing inline PTX with CUDA runtime APIs across norm, RoPE, attention, and MoE codepaths | Treat PDL-looking launch groups as an upstream FlashInfer overlap family even when implementation details differ across revisions. |
 
 ## 7. TensorRT-LLM-origin kernel-overlap families
 
@@ -107,7 +115,16 @@ AutoDeploy rather than same-stream PDL windows.
 | TensorRT-LLM multi-stream MoE shared-vs-routed overlap | `multi_stream_moe`<br>`begin_aux_stream_passthrough`<br>`end_aux_stream_passthrough`<br>`wait_aux_stream_passthrough`<br>`mlir_elementwise_fusion`<br>`piecewise cudagraph`<br>`caller_stream.synchronize()` | `tensorrt_llm/_torch/auto_deploy/transform/library/multi_stream_moe.py`<br>`tensorrt_llm/_torch/auto_deploy/utils/multi_stream_utils.py` | Shared-expert work is moved to an auxiliary stream while routed-expert MoE work remains on the main stream and rejoins at the merge node; the same family includes synchronization rules for MLIR-fused kernels and piecewise cudagraph replay | Treat shared-expert vs routed-expert windows, including altered behavior under MLIR / piecewise graph modes, as an existing TensorRT-LLM branch-overlap family. |
 | TensorRT-LLM multi-stream FP8 GEMM fork parallelism | `multi_stream_gemm`<br>`trtllm_finegrained_fp8_linear`<br>`record_event_passthrough`<br>`_aux` | `tensorrt_llm/_torch/auto_deploy/transform/library/multi_stream_gemm.py`<br>`tensorrt_llm/_torch/auto_deploy/utils/multi_stream_utils.py` | Compiler pass identifies fork points with multiple FP8 linears and moves the largest GEMM to the auxiliary stream so sibling GEMMs overlap | Treat sibling FP8 linear branches as an existing TensorRT-LLM overlap family before designing a new stream split. |
 
-## 8. vLLM-origin kernel-overlap families
+## 8. TokenSpeed-origin kernel-overlap families
+
+These rows are comparative references from `lightseekorg/tokenspeed`. Use them
+when the trace is from TokenSpeed or from a vLLM/TokenSpeed hybrid deployment.
+
+| Pattern | Trace keywords | Primary code | Existing path | Skill should conclude |
+| --- | --- | --- | --- | --- |
+| TokenSpeed allreduce / communication fusion | `enable_allreduce_fusion`<br>`comm_fusion`<br>`comm_fusion_max_num_tokens`<br>`allreduce` | `docs/configuration/server.md`<br>`python/tokenspeed/runtime/distributed/comm_backend` | TokenSpeed exposes runtime knobs for communication fusion and token-count gating, so all-reduce windows may be a disabled or shape-gated TokenSpeed path | Treat split all-reduce + compute windows in TokenSpeed traces as a comm-fusion eligibility question before calling it a novel overlap opportunity. |
+
+## 9. vLLM-origin kernel-overlap families
 
 | Pattern | Trace keywords | Primary code | Existing path | Skill should conclude |
 | --- | --- | --- | --- | --- |
@@ -116,14 +133,14 @@ AutoDeploy rather than same-stream PDL windows.
 | vLLM-origin shared-expert aux-stream overlap | `aux_stream`<br>`shared_experts_stream`<br>shared expert near router | `vllm/model_executor/layers/fused_moe/runner/shared_experts.py`<br>`vllm/model_executor/layers/fused_moe/runner/moe_runner_base.py` | MoE shared experts can record the cloned input on `shared_experts_stream`, wait on the caller stream, run in parallel with router-side work, and rejoin before merge | Treat shared-expert vs router overlap as an existing upstream sparse-model family. |
 | vLLM-origin DCP async all-to-all overlap | `dcp_alltoall`<br>`all_to_all_single`<br>`async_op=True` | `vllm/v1/attention/ops/dcp_alltoall.py` | Output / LSE exchange uses async all-to-all handles instead of serializing collective completion on the main path | Treat DCP all-to-all windows as an upstream async-collective family. |
 
-## 9. vLLM-origin PR-backed / in-flight kernel-overlap families
+## 10. vLLM-origin status-audited PR evidence
 
 | Pattern | Trace keywords | Primary code | Existing path | Skill should conclude |
 | --- | --- | --- | --- | --- |
-| PR `#35968` DSV3.2 multi-stream indexer overlap | `weights_proj`<br>`wk`<br>`k_norm`<br>`aux_stream` | `PR #35968`<br>`vllm/model_executor/models/deepseek_v2.py`<br>`vllm/utils/torch_utils.py` | Closed PR explored overlapping the small `weights_proj` GEMM with `wk + k_norm` on a secondary CUDA stream for decode batches instead of serializing both on the default stream | Treat this as a concrete upstream decode-time kernel-overlap family when traces show underutilized projection overlap opportunities. |
-| PR `#39301` GLM5 router GEMM with PDL overlap | `TRTLLM_ENABLE_PDL`<br>`router_gemm`<br>`GLM5`<br>`FI AR RMS fusion` | `PR #39301`<br>`vllm/model_executor/layers/fused_moe/router/gate_linear.py`<br>`vllm/csrc/moe/dsv3_router_gemm_utils.h` | The GLM5 router GEMM path explicitly uses PDL so the router kernel can overlap with the preceding fused allreduce-plus-RMS block on supported GPUs | Treat router-GEMM launch overlap on GLM5-like traces as an in-flight upstream family first. |
+| Closed-unmerged PR `#35968` DSV3.2 multi-stream indexer overlap | `weights_proj`<br>`wk`<br>`k_norm`<br>`aux_stream` | `PR #35968`<br>`vllm/model_executor/models/deepseek_v2.py`<br>`vllm/utils/torch_utils.py` | Closed PR explored overlapping the small `weights_proj` GEMM with `wk + k_norm` on a secondary CUDA stream for decode batches instead of serializing both on the default stream | Treat this as a concrete upstream decode-time kernel-overlap family when traces show underutilized projection overlap opportunities. |
+| Closed-unmerged PR `#39301` GLM5 router GEMM with PDL overlap | `TRTLLM_ENABLE_PDL`<br>`router_gemm`<br>`GLM5`<br>`FI AR RMS fusion` | `PR #39301`<br>`vllm/model_executor/layers/fused_moe/router/gate_linear.py`<br>`vllm/csrc/moe/dsv3_router_gemm_utils.h` | The closed-unmerged experiment used PDL so the router kernel could overlap with the preceding fused allreduce-plus-RMS block | Retain this only as historical evidence; do not report it as shipped or open. |
 
-## 10. Important toggles and caveats
+## 11. Important toggles and caveats
 
 | Toggle / env | Location | Effect on trace interpretation |
 | --- | --- | --- |
@@ -132,6 +149,11 @@ AutoDeploy rather than same-stream PDL windows.
 | `SGLANG_DISAGG_STAGING_BUFFER` | `python/sglang/srt/environ.py` | Enables the heterogeneous-TP staging-buffer family and its overlap windows. |
 | `SGLANG_STAGING_USE_TORCH` | `python/sglang/srt/disaggregation/common/staging_buffer.py` | Forces torch fallback for staging gather / scatter, so Triton staging kernels may disappear by design. |
 | `SGLANG_VIT_ENABLE_CUDA_GRAPH` | `python/sglang/srt/environ.py` | Can intentionally disable vision `aux_stream` overlap. |
+| Kimi K3 overlap-slack accounting | `python/sglang/srt/models/kimi_k3.py`<br>GPU trace | A side-stream kernel only removes the portion hidden beneath the longer branch and may contend for SM, cache, or bandwidth. Prefer synchronization-point work on the critical path; reject overlap whose join moves the critical path or whose exposed savings do not exceed launch/sync overhead. |
+| Kimi K3 CUDA Graph stream topology | `python/sglang/srt/models/kimi_k3.py`<br>`python/sglang/srt/multimodal/kimi_k3_vit_cuda_graph_runner.py` | Auxiliary streams, waits, and joins must be created and replayed unconditionally with fixed topology; every tensor produced off-stream must remain live and be recorded on its consumer stream. Exact-shape ViT graphs remain bounded and fall back eagerly. |
+| Kimi K3 PDL ordering | `python/sglang/kernels/ops/attention/set_mla_kv_concat_q.py`<br>`python/sglang/kernels/jit/csrc/kimi_k3/` | The producer may signal only after all data and barrier state visible to the consumer are published. Check barrier generation and producer/consumer source order; an overlapping trace alone cannot prove race freedom. |
+| Symmetric-memory logical segment parity | `python/sglang/kernels/ops/kimi_k3/all_reduce.py`<br>`python/sglang/kernels/ops/kimi_k3/sp_collective.py` | Same-sized allocations can still bind different logical segments when rank control flow diverges. Use a persistent rank-symmetric arena or a collective fallback rather than relying on per-call allocation order. |
+| DCP virtual cache locations | `python/sglang/kernels/ops/attention/dcp_kernels.py`<br>`python/sglang/srt/models/kimi_k3.py` | Position ownership and physical slot numbering differ across ranks. Validate virtual-to-owner mapping before overlapping cache writes or collectives; a locally valid index can corrupt another request globally. |
 | `enable_pdl` / `launch_with_pdl` | `flashinfer/norm/__init__.py`<br>`flashinfer/activation.py`<br>`flashinfer/rope.py`<br>`flashinfer/fused_moe/core.py`<br>`flashinfer/comm/allreduce.py` | Enables FlashInfer PDL across many kernels; launch grouping and same-stream overlap can change substantially when it is on. |
 | `trigger_completion_at_end` | `flashinfer/comm/allreduce.py` | `False` enables downstream PDL-aware overlap after FlashInfer allreduce fusion; `True` delays completion to kernel end and removes that overlap window. |
 | `use_cuda_graph` | `flashinfer/fused_moe/cute_dsl/fused_moe.py` | Enables the preallocated-buffer path and the safe aux-stream async-memset overlap in FlashInfer CuTeDSL MoE. |
@@ -140,12 +162,13 @@ AutoDeploy rather than same-stream PDL windows.
 | `multi_stream_mla_attn` | `tensorrt_llm/_torch/auto_deploy/config/default.yaml` | Enables the TensorRT-LLM MLA Q-vs-KV branch overlap family. |
 | `multi_stream_gemm` | `tensorrt_llm/_torch/auto_deploy/config/default.yaml` | Enables generalized FP8 GEMM fork overlap in TensorRT-LLM AutoDeploy. |
 | `mlir_elementwise_fusion` | `tensorrt_llm/_torch/auto_deploy/config/default.yaml` | Can absorb merge adds into larger fused kernels, so missing explicit merge nodes in TensorRT-LLM multi-stream traces may be intentional. |
-| `enable_torch_compile` | `python/sglang/srt/server_args.py`<br>`python/sglang/multimodal_gen/runtime/server_args.py` | Compiler-generated reordering can hide or rename overlap windows. |
+| `enable_torch_compile` | `python/sglang/srt/server_args.py`<br>`python/sglang/multimodal_gen/runtime/server_args/server_args.py` | Compiler-generated reordering can hide or rename overlap windows. |
 | `enable_fused_grouped_gemm_combine` | `PR #21877` | In-flight path that intentionally disables SBO because combine is folded into down-GEMM. |
 | `PassConfig.enable_sp` | `vllm/config/compilation.py` | Enables vLLM's sequence-parallel staging family that creates RS / AG overlap opportunities. |
 | `PassConfig.fuse_gemm_comms` | `vllm/config/compilation.py` | Enables AsyncTP GEMM + collective overlap and auto-enables `enable_sp` when valid. |
+| TokenSpeed `--comm-fusion-max-num-tokens` / `--enable-allreduce-fusion` | `docs/configuration/server.md` | Gates TokenSpeed communication fusion; inspect it before treating all-reduce + compute separation as a new overlap gap. |
 
-## 11. Suggested refresh commands
+## 12. Suggested refresh commands
 
 These commands are only for maintainers refreshing this catalog by rescanning
 the local source trees. They are not used by the triage scripts at runtime.
@@ -155,6 +178,7 @@ the local source trees. They are not used by the triage scripts at runtime.
 FLASHINFER_REPO=${FLASHINFER_REPO:-../flashinfer}
 TRTLLM_REPO=${TRTLLM_REPO:-../TensorRT-LLM}
 VLLM_REPO=${VLLM_REPO:-../vllm}
+TOKENSPEED_REPO=${TOKENSPEED_REPO:-../tokenspeed}
 
 rg -n "single_batch_overlap|alt_stream|shared_expert|scatter_stream|_fused_gather_to_staging_kernel|_fused_scatter_from_staging_kernel|async_op=True" python/sglang
 rg -n "apply_qk_norm|vision.py|ring_attn|all_to_all_single|reorder_for_compute_comm_overlap|use_dual_stream" python/sglang/multimodal_gen python/sglang/srt
@@ -166,6 +190,8 @@ rg -n "mlir_elementwise_fusion|piecewise|cudagraph|caller_stream.synchronize" "$
 git -C "$TRTLLM_REPO" log --all --format='%h %s' | rg -i 'overlap|multi-stream|aux stream|cudagraph|mlir|stream|flashinfer|moe|mla'
 rg -n "fuse_gemm_comms|enable_sp|fused_matmul_reduce_scatter|fused_all_gather_matmul|shared_experts_stream|maybe_sync_shared_experts_stream|dcp_alltoall|async_op=True|aux_stream|maybe_execute_in_parallel" "$VLLM_REPO/vllm" "$VLLM_REPO/docs/design/fusions.md"
 git -C "$VLLM_REPO" log --all --format='%h %s' | rg -i 'fused|fusion|overlap|allreduce|reduce-scatter|all-gather|all_to_all|stream|multi-stream|triton|cuda|router'
+rg -n "enable_allreduce_fusion|comm_fusion|comm_fusion_max_num_tokens|allreduce|reduce_scatter" "$TOKENSPEED_REPO/python" "$TOKENSPEED_REPO/docs"
+git -C "$TOKENSPEED_REPO" log --all --format='%h %s' | rg -i 'fused|fusion|overlap|allreduce|stream|comm|mla|tokenspeed_mla'
 # GitHub PR scan terms for the connector or web UI:
 #   "fused OR overlap repo:sgl-project/sglang"
 #   "triton OR cutedsl OR cuda overlap repo:sgl-project/sglang"
@@ -177,4 +203,5 @@ git -C "$VLLM_REPO" log --all --format='%h %s' | rg -i 'fused|fusion|overlap|all
 #   "fused OR overlap repo:vllm-project/vllm"
 #   "triton OR cuda overlap repo:vllm-project/vllm"
 #   "multi-stream OR aux_stream overlap repo:vllm-project/vllm"
+#   "fused OR overlap OR comm_fusion repo:lightseekorg/tokenspeed"
 ```

@@ -16,7 +16,8 @@ navigation or detailed timing analysis.
 
 - when you need to know **which layers** contribute most
 - when the model has alternating layer types (e.g. models with
-  `compress_ratios` like DeepSeek-V4 NSA)
+  `compress_ratios` like DeepSeek-V4 NSA, or hybrid GDN/GQA stacks such as
+  Qwen3.8-27B)
 - when you need to compare cold-start vs steady-state forward passes
 - when you need to navigate to a specific layer in Perfetto UI
 - when you need to select representative layers for deep-dive analysis
@@ -48,10 +49,11 @@ via `--profile`:
 |---|---|---|---|---|
 | `dsv4_csa_hca` | `mhc_post_tilelang` | 2 | attn + ffn halves | `compress_ratios` non-empty |
 | `dsv3_mla` | `flash_fwd_mla_combine` | 1 | full layer | `kv_lora_rank > 0` |
-| `generic` | auto-detect or `--anchor-kernel` | 1 | full layer | fallback |
+| `generic` | repeated RMSNorm/AllReduce or `--anchor-kernel` | 1 | full layer | fallback |
 
 Use `--profile generic --anchor-kernel YOUR_KERNEL` for models not covered
-by built-in profiles.
+by built-in profiles. Generic TP=1 traces can auto-detect a repeated RMSNorm
+anchor without requiring an NCCL AllReduce marker.
 
 ## Prerequisites
 
@@ -98,7 +100,7 @@ python3 scripts/layer_timeline_analyzer.py \
   --config /path/to/config.json \
   --fwd-pass 5
 
-# Auto-select first steady-state pass
+# Auto-select the first relatively stable pass window
 python3 scripts/layer_timeline_analyzer.py \
   --trace /path/to/TP-0.trace.json.gz \
   --config /path/to/config.json
@@ -108,6 +110,11 @@ The script prints:
 - Per-layer wall-clock time, sum-duration, and category breakdown (MLA, MoE, GEMM, NCCL, MHC, Hadamard)
 - Layer cluster statistics grouped by type (C4_LIGHT, C128_HEAVY, HASH, etc.)
 - All-passes summary showing cold-start → steady-state growth
+
+Automatic steady-state selection requires two consecutive layer-0 timing
+changes within 5%. It does not use an absolute latency threshold, so the same
+rule works across model sizes and accelerators. If no stable window exists,
+choose `--fwd-pass` explicitly.
 
 ### 2. `layer_kernel_breakdown.py` — Per-layer kernel detail and compute flow
 
@@ -138,9 +145,10 @@ python3 scripts/layer_kernel_breakdown.py \
 ```
 
 Output formats:
-- `--format text` (default): grouped summary + ordered kernel list with simplified names and durations
-- `--format compute-flow`: model architecture summary + category-level timing + per-kernel table with `Category` column
-- `--format json`: machine-readable per-kernel detail
+- `--format text` (default): grouped summary + top hot kernels ranked by duration, with simplified names and percentages
+- `--format compute-flow`: model architecture summary + per-kernel hotness table with `Category`, `%`, and `ts_rel(ms)` columns
+- `--format json`: one machine-readable JSON document ranked by duration; with
+  `--compare-layer`, it contains `primary`, `comparison`, and `kernel_diff`
 - Kernel diff when comparing two layers (unique kernels in each)
 
 ### 3. `perfetto_time_mapper.py` — Perfetto UI time navigation
@@ -172,7 +180,8 @@ python3 scripts/layer_timeline_analyzer.py \
 ```
 
 Read the "all-passes" table. The first pass is cold-start (few tokens).
-Find the first pass where layer-0 wall-clock stabilizes (typically pass 3-5).
+Use the first relative-stability window selected by the script, or choose a
+pass explicitly when timings continue to change.
 
 ### Step 2: Per-layer breakdown on steady-state pass
 
@@ -204,8 +213,8 @@ python3 scripts/layer_kernel_breakdown.py \
 
 The `--format compute-flow` output includes:
 - Model architecture summary at the top
-- Category-level timing summary
-- Per-kernel table with `# | Half | Category | Simplified Name | dur(us) | %`
+- Per-kernel hotness table with `# | Half | Category | Simplified Name | dur(us) | % | ts_rel(ms) | Input Dims`
+- Rows are ranked by `dur(us)` descending by default; use `ts_rel(ms)` to jump back to the kernel's trace location.
 
 ### Step 4: Compare layer types (optional)
 
@@ -289,8 +298,8 @@ Include:
    - Identifies bottleneck layer type and likely next target
 7. **Compute Flow Table** for selected representative layer(s):
    - Produced by `layer_kernel_breakdown.py --format compute-flow`
-   - Columns: `# | Half | Category | Simplified Name | dur(us) | %`
-   - Category-level summary above the table
+   - Columns: `# | Half | Category | Simplified Name | dur(us) | % | ts_rel(ms) | Input Dims`
+   - Rows are sorted by top hot kernels (`dur(us)` descending) by default
    - Optional JSON export (`--format json`)
 8. **Perfetto UI time ranges** when requested
 9. **One-line summary**: bottleneck layer type and likely next target

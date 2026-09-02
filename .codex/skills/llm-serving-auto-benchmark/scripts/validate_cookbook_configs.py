@@ -17,13 +17,14 @@ from typing import Any
 
 import yaml
 
-FRAMEWORKS = ("sglang", "vllm", "tensorrt_llm")
+FRAMEWORKS = ("sglang", "vllm", "tensorrt_llm", "tokenspeed")
 ALLOWED_SOURCE_KINDS = {"llm_serving_cookbook"}
 
 SEQUENCE_LIMIT_KEY = {
     "sglang": "context_length",
     "vllm": "max_model_len",
     "tensorrt_llm": "max_seq_len",
+    "tokenspeed": "max_model_len",
 }
 
 ALLOWED_SLA_KEYS = {
@@ -55,6 +56,7 @@ STATIC_SERVER_FLAGS = {
         "ep_size",
         "host",
         "kv_cache_dtype",
+        "max_prefill_tokens",
         "max_running_requests",
         "mem_fraction_static",
         "model_loader_extra_config",
@@ -79,10 +81,8 @@ STATIC_SERVER_FLAGS = {
         "host",
         "kv_cache_dtype",
         "long_prefill_token_threshold",
-        "max_long_partial_prefills",
         "max_model_len",
         "max_num_batched_tokens",
-        "max_num_partial_prefills",
         "max_num_seqs",
         "pipeline_parallel_size",
         "port",
@@ -104,17 +104,51 @@ STATIC_SERVER_FLAGS = {
         "tp_size",
         "trust_remote_code",
     },
+    "tokenspeed": {
+        "attention_backend",
+        "attn_tp_size",
+        "chunked_prefill_size",
+        "comm_fusion_max_num_tokens",
+        "disable_cuda_graph_padding",
+        "dtype",
+        "enable_allreduce_fusion",
+        "enable_expert_parallel",
+        "enable_mla_l1_5_cache",
+        "enable_prefix_caching",
+        "gpu_memory_utilization",
+        "host",
+        "kv_cache_dtype",
+        "max_model_len",
+        "max_num_seqs",
+        "max_prefill_tokens",
+        "max_total_tokens",
+        "mla_chunk_multiplier",
+        "moe_backend",
+        "moe_tp_size",
+        "port",
+        "quantization",
+        "reasoning_parser",
+        "speculative_algorithm",
+        "speculative_config",
+        "speculative_draft_model_path",
+        "speculative_num_draft_tokens",
+        "speculative_num_steps",
+        "tensor_parallel_size",
+        "tool_call_parser",
+        "trust_remote_code",
+    },
 }
 
 HELP_FILE_HINTS = {
     "sglang": ("sglang", "launch"),
     "vllm": ("vllm", "serve"),
     "tensorrt_llm": ("trtllm", "serve"),
+    "tokenspeed": ("tokenspeed", "serve"),
 }
 
 
 def flag_name(framework: str, key: str) -> str:
-    if framework in {"sglang", "vllm"}:
+    if framework in {"sglang", "vllm", "tokenspeed"}:
         return "--" + key.replace("_", "-")
     return "--" + key
 
@@ -176,7 +210,7 @@ def _command_tokens(
     command = shlex.split(server["server_command"])
     model = config["model"]["name"]
 
-    if framework in {"vllm", "tensorrt_llm"}:
+    if framework in {"vllm", "tensorrt_llm", "tokenspeed"}:
         command.append(model)
 
     for key, value in flags.items():
@@ -210,10 +244,12 @@ def load_help_flags(help_dir: Path) -> dict[str, set[str]]:
             if all(hint in name for hint in hints):
                 matches.append(path)
         if matches:
-            text = "\n".join(
-                path.read_text(encoding="utf-8", errors="replace") for path in matches
-            )
-            help_flags[framework] = _extract_help_flags(text)
+            flags: set[str] = set()
+            for path in matches:
+                text = path.read_text(encoding="utf-8", errors="replace")
+                flags.update(_extract_help_flags(text))
+            if flags:
+                help_flags[framework] = flags
     return help_flags
 
 
@@ -244,6 +280,11 @@ def _validate_framework(
     if not isinstance(server, dict):
         return [f"missing frameworks.{framework}"]
     if not server.get("enabled", False):
+        if server.get("support_status") != "not_verified_at_recorded_head":
+            return [
+                f"{framework}: disabled sections must set "
+                "support_status to not_verified_at_recorded_head"
+            ]
         return []
 
     base_flags = server.get("base_server_flags")
