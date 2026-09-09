@@ -1,23 +1,31 @@
 #!/bin/bash
 
+# FP8 checkpoint with sparse MLA, prefix caching and FP8 KV cache.
+# Companion to the MXFP4 validation preset; FP8 has not been validated here.
+
 SCRIPT_DIR="$(realpath "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="${SCRIPT_DIR%/presets/*}"
 
 export PD_MODE="MIXED"
 source "$SCRIPT_DIR/user_env_template.sh"
 
-export TORCH_XCPU_ENABLE_CHECK=0
-# export USER_VLLM_EAGER_OR_NOT="--enforce-eager"
-export USER_VLLM_MODEL="amd/GLM-5.2-MXFP4"
-export VLLM_XCPU_QUARK_MXFP4_FORCE_W4A16=1
+# Do not carry the MXFP4-only activation override into this preset.
+unset VLLM_XCPU_QUARK_MXFP4_FORCE_W4A16
+export VLLM_TEST_MAX_WAIT="${VLLM_TEST_MAX_WAIT:-1800}"
+export VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=3600
+export USER_VLLM_MAX_NUM_BATCHED_TOKENS=2048
+export USER_VLLM_EAGER_OR_NOT="--enforce-eager"
+export USER_VLLM_MODEL="ZhipuAI/GLM-5.2-FP8"
 export USER_VLLM_DATA_PARALLEL_SIZE=2
 export USER_VLLM_TP_SIZE=2
 export USER_VLLM_PP_SIZE=1
 export USER_VLLM_MPC_SIZE=$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE))
+
 export VLLM_USE_MPI_COORD=1
 export VLLM_CPU_USE_MPI=1
-_VLLM_OPTIONAL_ARGS+=" --all2all-backend mpi_alltoallv_v6"
 
+_VLLM_OPTIONAL_ARGS+=" --all2all-backend mpi_alltoallv_v6"
+_VLLM_OPTIONAL_ARGS+=" --kv-cache-dtype fp8"
 _VLLM_OPTIONAL_ARGS+=' --kernel-config {"enable_jit_warmup":false}'
 _VLLM_OPTIONAL_ARGS+=' --tool-call-parser glm47'
 _VLLM_OPTIONAL_ARGS+=' --enable-auto-tool-choice'
@@ -26,8 +34,4 @@ export VLLM_OPTIONAL_ARGS="${_VLLM_OPTIONAL_ARGS}"
 
 preset_name=$(basename "${BASH_SOURCE[0]}" .sh)
 preset_dir=$(basename "$(dirname "${BASH_SOURCE[0]}")")
-if [ "$preset_dir" = "presets" ]; then
-    echo "🚀 Preset: ${preset_name} | DP=${USER_VLLM_DATA_PARALLEL_SIZE}, TP=${USER_VLLM_TP_SIZE}, PP=${USER_VLLM_PP_SIZE}"
-else
-    echo "🚀 Preset: ${preset_dir}/${preset_name} | DP=${USER_VLLM_DATA_PARALLEL_SIZE}, TP=${USER_VLLM_TP_SIZE}, PP=${USER_VLLM_PP_SIZE}"
-fi
+echo "Preset: ${preset_dir}/${preset_name} | FP8 checkpoint, FP8 KV cache"
