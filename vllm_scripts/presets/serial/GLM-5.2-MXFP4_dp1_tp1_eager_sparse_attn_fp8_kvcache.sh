@@ -8,14 +8,14 @@ SCRIPT_DIR="$(realpath "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="${SCRIPT_DIR%/presets/*}"
 
 export PD_MODE="NOT_MOE"
+export USER_VLLM_MAX_NUM_BATCHED_TOKENS="${USER_VLLM_MAX_NUM_BATCHED_TOKENS:-2048}"
+export VLLM_TEST_MAX_WAIT="${VLLM_TEST_MAX_WAIT:-1800}"
+export VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS="${VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS:-3600}"
 source "$SCRIPT_DIR/user_env_template.sh"
 
 # The published AMD checkpoint declares dynamic MXFP4 activations (W4A4).
 # XCPU currently consumes the same packed weights with BF16 activations (W4A16).
 export VLLM_XCPU_QUARK_MXFP4_FORCE_W4A16=1
-export VLLM_TEST_MAX_WAIT="${VLLM_TEST_MAX_WAIT:-1800}"
-export VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=3600
-export USER_VLLM_MAX_NUM_BATCHED_TOKENS=2048
 export USER_VLLM_EAGER_OR_NOT="--enforce-eager"
 export USER_VLLM_MODEL="amd/GLM-5.2-MXFP4"
 export USER_VLLM_DATA_PARALLEL_SIZE=1
