@@ -6,7 +6,7 @@ SCRIPT_DIR="${SCRIPT_DIR%/presets/*}"
 export PD_MODE="MIXED"
 source "$SCRIPT_DIR/user_env_template.sh"
 
-export TORCH_XCPU_ENABLE_CHECK=0
+export TORCH_XCPU_ENABLE_CHECK="${TORCH_XCPU_ENABLE_CHECK:-0}"
 # export USER_VLLM_EAGER_OR_NOT="--enforce-eager"
 export USER_VLLM_MODEL="Qwen/Qwen3.6-35B-A3B"
 export USER_VLLM_DATA_PARALLEL_SIZE=2
