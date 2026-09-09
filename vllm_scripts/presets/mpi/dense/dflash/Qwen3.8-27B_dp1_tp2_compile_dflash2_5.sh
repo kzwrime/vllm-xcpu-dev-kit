@@ -1,22 +1,28 @@
 #!/bin/bash
 # Preset: Qwen3.6-27B with DFlash
-# Configuration: DP=1, TP=1, PP=1, enforce-eager mode
+# Configuration: DP=1, TP=1, PP=1, compile mode
 
 SCRIPT_DIR="$(realpath "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="${SCRIPT_DIR%/presets/*}"
 export PD_MODE="NOT_MOE"
+
+export VLLM_TEST_MAX_WAIT="${VLLM_TEST_MAX_WAIT:-1800}"
+export VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS="${VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS:-1800}"
 source "$SCRIPT_DIR/user_env_template.sh"
 
-export USER_VLLM_EAGER_OR_NOT="--enforce-eager"
+# export USER_VLLM_EAGER_OR_NOT="--enforce-eager"
+export TORCH_XCPU_ENABLE_CHECK=0
+export VLLM_OPTIONAL_ARGS="${VLLM_OPTIONAL_ARGS} --skip-mm-profiling"
 export USER_VLLM_MODEL="Qwen/Qwen3.8-27B"
 export USER_VLLM_DATA_PARALLEL_SIZE=1
 export USER_VLLM_TP_SIZE=1
 export USER_VLLM_PP_SIZE=1
 export USER_VLLM_MPC_SIZE=$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE))
-unset VLLM_DISABLE_TQDM_AND_MONITOR
+export VLLM_USE_MPI_COORD=1
+export VLLM_CPU_USE_MPI=1
 
 _VLLM_OPTIONAL_ARGS+=" --reasoning-parser qwen3 --language-model-only"
-_VLLM_OPTIONAL_ARGS+=' --speculative-config {"model":"z-lab/Qwen3.8-27B-DFlash2","num_speculative_tokens":4,"method":"dflash"}'
+_VLLM_OPTIONAL_ARGS+=' --speculative-config {"model":"z-lab/Qwen3.8-27B-DFlash2","num_speculative_tokens":5,"method":"dflash"}'
 export VLLM_OPTIONAL_ARGS="${_VLLM_OPTIONAL_ARGS}"
 
 preset_name=$(basename "${BASH_SOURCE[0]}" .sh)
