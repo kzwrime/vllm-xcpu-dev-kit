@@ -31,16 +31,21 @@ usage() {
   -e <preset_file>   指定预设文件路径
   --no-test          只启动服务，不运行测试
   --multi-test       启动服务后运行 serve_test/test_multl_stream.py
+  --sparse-indexer-accuracy-test
+                     用单次批量请求的两条序列验证 GLM5.2 MXFP4 + FP8 KV-cache 的
+                     dense-equivalent / sparse indexer 精度路径
   --multimodal-test  启动服务后运行 serve_test/test_multimodal.py
   --multi-test-max-tokens NUM
                      multi test 每个请求的最大输出 token 数，默认 16
   --multi-test-temperature NUM
                      multi test 采样温度，默认 0.7；设为 0 时使用 greedy 解码
   --bench            启动服务后运行 bench
+  --spec-decode      启动服务后运行 serve_test/serve_bench_spec_decode.sh
   --coverage         启动服务后运行 coverage bench，并 dump shapes
   --profile          在普通测试、multi test 或 multimodal test 前后调用 vLLM profiler
   --test-timeout SECONDS
-                     测试 / multi test / multimodal test / bench 最长运行时间（秒），默认不限制
+                     测试 / multi test / multimodal test / bench（含 spec decode）
+                     最长运行时间（秒），默认不限制
   --pd               以 P/D 分离模式运行
   --launcher MODE    强制指定启动方式: auto | mp | mpi
   --auto-port        如果 USER_VLLM_PORT 被占用，则从该端口开始寻找空闲端口
@@ -49,8 +54,13 @@ usage() {
 环境变量:
   VLLM_TEST_LOG_DIR   本次运行的日志根目录，默认 <vllm_scripts>/logs
   VLLM_TEST_MAX_WAIT   服务启动最大等待时间（秒），默认 300
+                       未显式设置 VLLM_ENGINE_READY_TIMEOUT_S 时，也用于
+                       vLLM 内部 engine ready 等待
+  VLLM_ENGINE_READY_TIMEOUT_S
+                       vLLM 内部 engine ready 等待；显式设置时优先
   RUN_VLLM_TEST_TIMEOUT
-                       测试 / multi test / multimodal test / bench 最长运行时间（秒），默认不限制
+                       测试 / multi test / multimodal test / bench（含 spec decode）
+                       最长运行时间（秒），默认不限制
   RUN_VLLM_TEST_AUTO_PORT
                        设为 1/true/yes/on 时等价于 --auto-port
 USAGE
@@ -97,6 +107,10 @@ while [ $# -gt 0 ]; do
             TEST_MODE="multi"
             shift
             ;;
+        --sparse-indexer-accuracy-test)
+            TEST_MODE="sparse_indexer_accuracy"
+            shift
+            ;;
         --multimodal-test)
             TEST_MODE="multimodal"
             shift
@@ -129,6 +143,11 @@ while [ $# -gt 0 ]; do
             ;;
         --bench)
             TEST_MODE="bench"
+            REQUESTED_BENCH=1
+            shift
+            ;;
+        --spec-decode)
+            TEST_MODE="spec_decode"
             REQUESTED_BENCH=1
             shift
             ;;
@@ -203,7 +222,7 @@ if [ "$PROFILE_TEST" -eq 1 ]; then
     fi
 
     case "$TEST_MODE" in
-        test|multi|multimodal)
+        test|multi|multimodal|sparse_indexer_accuracy)
             ;;
         *)
             log_error "--profile 只能和普通测试、--multi-test 或 --multimodal-test 一起使用"
@@ -520,6 +539,18 @@ run_test() {
         fi
         log_info "测试日志: $TEST_LOG"
         cat_multi_test_results
+    elif [ "$TEST_MODE" = "sparse_indexer_accuracy" ]; then
+        log_info "运行 GLM5.2 sparse-indexer 精度测试（单次调用、2 条序列）..."
+        [ -n "$TEST_TIMEOUT" ] && log_info "精度测试最长运行时间: ${TEST_TIMEOUT} 秒"
+        CURRENT_RUN_OUTPUT_LOGS+=("$TEST_LOG")
+        if run_with_test_timeout python "$SCRIPT_DIR/serve_test/test_sparse_indexer_accuracy.py" "${TEST_ENV_ARGS[@]}" > "$TEST_LOG" 2>&1; then
+            log_success "Sparse-indexer 精度测试完成"
+        else
+            TEST_EXIT_CODE=$?
+            log_test_exit "Sparse-indexer 精度测试" "$TEST_EXIT_CODE"
+        fi
+        log_info "测试日志: $TEST_LOG"
+        cat "$TEST_LOG"
     elif [ "$TEST_MODE" = "multimodal" ]; then
         log_info "运行 multimodal test..."
         [ -n "$TEST_TIMEOUT" ] && log_info "Multimodal test 最长运行时间: ${TEST_TIMEOUT} 秒"
@@ -540,6 +571,17 @@ run_test() {
         else
             TEST_EXIT_CODE=$?
             log_test_exit "Bench" "$TEST_EXIT_CODE"
+        fi
+        log_info "Bench 日志: $BENCH_LOG"
+    elif [ "$TEST_MODE" = "spec_decode" ]; then
+        log_info "运行 speculative decoding bench..."
+        [ -n "$TEST_TIMEOUT" ] && log_info "Speculative decoding bench 最长运行时间: ${TEST_TIMEOUT} 秒"
+        CURRENT_RUN_OUTPUT_LOGS+=("$BENCH_LOG")
+        if run_with_test_timeout bash "$SCRIPT_DIR/serve_test/serve_bench_spec_decode.sh" "${TEST_ENV_ARGS[@]}" > "$BENCH_LOG" 2>&1; then
+            log_success "Speculative decoding bench 完成"
+        else
+            TEST_EXIT_CODE=$?
+            log_test_exit "Speculative decoding bench" "$TEST_EXIT_CODE"
         fi
         log_info "Bench 日志: $BENCH_LOG"
     elif [ "$TEST_MODE" = "coverage" ]; then
@@ -634,9 +676,9 @@ fi
 echo ""
 log_info "日志文件位置:"
 launcher_print_service_locations
-if [ "$TEST_MODE" = "test" ] || [ "$TEST_MODE" = "multi" ] || [ "$TEST_MODE" = "multimodal" ]; then
+if [ "$TEST_MODE" = "test" ] || [ "$TEST_MODE" = "multi" ] || [ "$TEST_MODE" = "multimodal" ] || [ "$TEST_MODE" = "sparse_indexer_accuracy" ]; then
     log_info "  Test:  $TEST_LOG"
-elif [ "$TEST_MODE" = "bench" ] || [ "$TEST_MODE" = "coverage" ]; then
+elif [ "$TEST_MODE" = "bench" ] || [ "$TEST_MODE" = "spec_decode" ] || [ "$TEST_MODE" = "coverage" ]; then
     log_info "  Bench: $BENCH_LOG"
 fi
 log_info "  Cleanup: $MPI_CLEANUP_LOG"

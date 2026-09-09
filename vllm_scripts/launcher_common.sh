@@ -291,6 +291,15 @@ launcher_load_config() {
 
     SCRIPT_DIR="$launcher_script_dir"
 
+    # Keep vLLM's own engine-startup timeout aligned with the outer service
+    # wait when callers only configure VLLM_TEST_MAX_WAIT.  Otherwise a cold
+    # AOT compile can be killed by vLLM's 600-second default even though this
+    # launcher was explicitly asked to wait longer.  An explicit engine
+    # timeout remains authoritative.
+    if [ -z "${VLLM_ENGINE_READY_TIMEOUT_S:-}" ] && [ -n "${VLLM_TEST_MAX_WAIT:-}" ]; then
+        export VLLM_ENGINE_READY_TIMEOUT_S="$VLLM_TEST_MAX_WAIT"
+    fi
+
     [ -n "$PRESET_TAG" ] || PRESET_TAG="user_env"
     [ -n "$PRESET_NAME" ] || PRESET_NAME="$PRESET_TAG"
     # Tests may run from logs/ (multi-test does), so a relative -e path would

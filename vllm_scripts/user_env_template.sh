@@ -1,6 +1,6 @@
 
 export USER_VLLM_MODEL="Qwen/Qwen3-0.6B"
-export USER_VLLM_MAX_MODEL_LEN=8192
+export USER_VLLM_MAX_MODEL_LEN=32768
 export USER_VLLM_MAX_NUM_SEQS="${USER_VLLM_MAX_NUM_SEQS:-16}"
 
 export USER_VLLM_DATA_PARALLEL_SIZE=2
@@ -11,7 +11,7 @@ export USER_VLLM_DATA_PARALLEL_RPC_IP="127.0.0.1"   # HEAD IP (API Server in hea
 export VLLM_DP_MASTER_WORKER_IP="127.0.0.1"         # DP-Rank0 Worker0 IP
 export USER_VLLM_DATA_PARALLEL_RPC_PORT=13345
 export USER_VLLM_PORT=14800
-export VLLM_CPU_KVCACHE_SPACE=4 # KV Cache Size
+export VLLM_CPU_KVCACHE_SPACE=6 # KV Cache Size
 # export USER_VLLM_EAGER_OR_NOT="--enforce-eager"
 
 # 设置 VLLM_USE_MPI_COORD=1 时，会通过额外的 python 脚本，自动协调并设置以下变量
@@ -113,11 +113,9 @@ case ${PD_MODE} in
         # _VLLM_OPTIONAL_ARGS+=" --eplb-config.num_redundant_experts 16"
         # _VLLM_OPTIONAL_ARGS+=" --eplb-config.log_balancedness true"
 
-        # 通过 DP_SIZE * MAX_BATCHED_TOKENS * min(topk, num_local_experts) 来控制 all2allv 和 MoE 缓冲区 Token 数
-        # Prefill 时 DP 较少，将 MAX_BATCHED_TOKENS 调大
-        MAX_BATCHED_TOKENS="${USER_VLLM_MAX_NUM_BATCHED_TOKENS:-4096}"
-        export USER_VLLM_MAX_NUM_BATCHED_TOKENS=${MAX_BATCHED_TOKENS}
-        export VLLM_MOE_DP_CHUNK_SIZE=${MAX_BATCHED_TOKENS}
+        # 通过 DP_SIZE * USER_VLLM_MAX_NUM_BATCHED_TOKENS * min(topk, num_local_experts) 来控制 all2allv 和 MoE 缓冲区 Token 数
+        # Prefill 时 DP 较少，将 USER_VLLM_MAX_NUM_BATCHED_TOKENS 调大
+        export USER_VLLM_MAX_NUM_BATCHED_TOKENS="${USER_VLLM_MAX_NUM_BATCHED_TOKENS:-4096}"
         export VLLM_ENABLE_MOE_DP_CHUNK=0
         export VLLM_SHARED_EXPERT_DISABLE_TP=1
         ;;
@@ -136,11 +134,7 @@ case ${PD_MODE} in
         # _VLLM_OPTIONAL_ARGS+=" --eplb-config.num_redundant_experts 16"
         # _VLLM_OPTIONAL_ARGS+=" --eplb-config.log_balancedness true"
 
-        # 通过 DP_SIZE * MAX_BATCHED_TOKENS * min(topk, num_local_experts) 来控制 all2allv 和 MoE 缓冲区 Token 数
-        # Decode 时 DP 较多，将 MAX_BATCHED_TOKENS 调小
-        MAX_BATCHED_TOKENS="${USER_VLLM_MAX_NUM_BATCHED_TOKENS:-256}"
-        export USER_VLLM_MAX_NUM_BATCHED_TOKENS=${MAX_BATCHED_TOKENS}
-        export VLLM_MOE_DP_CHUNK_SIZE=${MAX_BATCHED_TOKENS}
+        export USER_VLLM_MAX_NUM_BATCHED_TOKENS="${USER_VLLM_MAX_NUM_BATCHED_TOKENS:-256}"
         export VLLM_ENABLE_MOE_DP_CHUNK=0 # torch.compile 目前不兼容 MOE_DP_CHUNK
         export VLLM_SHARED_EXPERT_DISABLE_TP=1
         
