@@ -203,9 +203,10 @@ def create_vllm_patch(
     *,
     output_dir: Path,
     release_version: str | None = None,
+    base_commit: str | None = None,
 ) -> Path | None:
     repo_path = resolve_repo_path(repository)
-    base_commit = repository["version"]
+    base_commit = base_commit or repository["version"]
     end_commit = git_text(repo_path, ["rev-parse", "HEAD"])
     if not is_ancestor(repo_path, base_commit, end_commit):
         print(
@@ -234,10 +235,26 @@ def create_vllm_patch(
     return output_path
 
 
-def package_release(manifest_path: Path, output_dir: Path, release_version: str) -> list[Path]:
+def package_release(
+    manifest_path: Path,
+    output_dir: Path,
+    release_version: str,
+    *,
+    skip_sources: set[str] | None = None,
+    vllm_patch_base: str | None = None,
+) -> list[Path]:
     manifest = load_manifest(manifest_path)
     release_date = dt.date.today().isoformat()
     output_dir.mkdir(parents=True, exist_ok=True)
+    skip_sources = skip_sources or set()
+
+    repository_names = {repository["name"] for repository in manifest["repositories"]}
+    unknown_names = skip_sources - repository_names
+    if unknown_names:
+        raise ValueError(
+            "--skip-source contains repositories not present in the manifest: "
+            + ", ".join(sorted(unknown_names))
+        )
 
     artifacts: list[Path] = []
     published_manifest: dict[str, Any] = {
@@ -254,21 +271,23 @@ def package_release(manifest_path: Path, output_dir: Path, release_version: str)
         head = git_text(repo_path, ["rev-parse", "HEAD"])
         published_manifest["repositories"].append(repository_version_entry(repository, head))
         branch = current_branch(repo_path)
-        artifacts.append(
-            clone_and_archive_repository(
-                repository,
-                output_dir=output_dir,
-                release_version=release_version,
-                release_date=release_date,
-                head=head,
-                branch=branch,
+        if name not in skip_sources:
+            artifacts.append(
+                clone_and_archive_repository(
+                    repository,
+                    output_dir=output_dir,
+                    release_version=release_version,
+                    release_date=release_date,
+                    head=head,
+                    branch=branch,
+                )
             )
-        )
         if name == VLLM_REPOSITORY_NAME:
             vllm_patch = create_vllm_patch(
                 repository,
                 output_dir=output_dir,
                 release_version=release_version,
+                base_commit=vllm_patch_base,
             )
             if vllm_patch is not None:
                 artifacts.append(vllm_patch)
@@ -293,10 +312,30 @@ def main() -> int:
         default=dt.date.today().strftime("%Y%m%d"),
         help="release version used in archive filenames",
     )
+    parser.add_argument(
+        "--skip-source",
+        action="append",
+        default=[],
+        metavar="REPOSITORY",
+        help="skip the source archive for this repository; may be repeated",
+    )
+    parser.add_argument(
+        "--vllm-patch-base",
+        help=(
+            "override the vLLM patch base commit, useful when the formal "
+            "manifest has already advanced to the current release"
+        ),
+    )
     args = parser.parse_args()
 
     try:
-        artifacts = package_release(args.manifest, args.output_dir, args.release_version)
+        artifacts = package_release(
+            args.manifest,
+            args.output_dir,
+            args.release_version,
+            skip_sources=set(args.skip_source),
+            vllm_patch_base=args.vllm_patch_base,
+        )
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

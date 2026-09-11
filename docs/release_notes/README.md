@@ -112,9 +112,21 @@ python3 scripts/package_release_publish.py
 python3 scripts/package_release_publish.py --release-version 20260626
 ```
 
+如只需要 vLLM 增量 patch、无需 vLLM 源码包，可跳过该仓库的源码归档：
+
+```bash
+python3 scripts/package_release_publish.py \
+  --release-version 20260626 \
+  --skip-source vllm
+```
+
+如果正式版本清单已经推进，可通过 `--vllm-patch-base <previous-version>` 显式指定
+上一次发布的完整 vLLM commit，仍从该 commit 之后生成增量 patch。该参数只改变
+vLLM patch 起点，不改变源码包及发布快照记录的当前 HEAD。
+
 打包行为：
 
-- 对清单中的每个仓库，脚本都会从当前分支 clone 一份源码树，写入 `.release/repository_version.json`，再生成 `<name>_<release-version>_<short-head>.tar.gz`。
+- 对清单中的每个仓库，脚本默认都会从当前分支 clone 一份源码树，写入 `.release/repository_version.json`，再生成 `<name>_<release-version>_<short-head>.tar.gz`；通过 `--skip-source <name>` 可跳过指定仓库的源码包，但该仓库仍写入当前版本快照，vLLM patch 也仍会生成。
 - `vllm` 历史连续时，除源码包外还会生成 patch。patch 范围从清单中记录的上一次 `version` 之后的第一个 commit 到当前 `HEAD`。
 - `vllm` 跨大版本且清单中的上一次 `version` 不是当前 `HEAD` 的祖先时，不生成 patch；源码包和当前版本清单仍正常生成。
 - 脚本会生成 `.release/publish/repository_versions_currently.json`，记录本次发布时各仓库的当前 `HEAD`。
