@@ -3,7 +3,9 @@ from long_context_accuracy import (
     TokenCounter,
     answer_hit,
     build_case,
+    generation_target_tokens,
     parse_lengths,
+    run_case_batch,
     validate_answer_format,
 )
 
@@ -46,6 +48,26 @@ def test_accepts_arbitrary_unique_lengths():
     assert parse_lengths("2047,2k,8.5k") == [2047, 2048, 8704]
 
 
+def test_generation_target_sits_above_nominal_boundary():
+    assert generation_target_tokens(512) == 528
+    assert generation_target_tokens(4096) == 4137
+    assert generation_target_tokens(8192) == 8274
+    assert generation_target_tokens(28672) == 28959
+
+
+def test_multi_stream_starts_all_cases_concurrently():
+    from threading import Barrier
+
+    cases = [{"case_id": case_id} for case_id in ("0.5k", "4k", "8k")]
+    started = Barrier(len(cases))
+
+    def run_one(case):
+        started.wait(timeout=2)
+        return case
+
+    assert run_case_batch(cases, run_one, multi_stream=True) == cases
+
+
 def test_counts_chat_template_batch_encoding():
     class BatchEncodingLike:
         def get(self, key):
@@ -63,7 +85,8 @@ def test_half_k_does_not_force_512_context_tokens():
     record = dict(id="qa", title="Example", context="Facts about Kubiak. " * 20,
                   question="Who?", answers=["Kubiak"])
     case = build_case([record], [record], 512, 0, TokenCounter(), 0.85)
-    assert case["estimated_input_tokens"] <= 512
+    assert case["generation_target_input_tokens"] == 528
+    assert case["estimated_input_tokens"] <= 528
     assert case["messages"][1]["content"].count(record["context"]) == 1
 
 

@@ -181,7 +181,7 @@ P/D 模式下，测试应使用启动日志中打印的 proxy preset，例如：
 
 ### 单独运行长上下文 QA 测试
 
-`serve_test/long_context_accuracy.py` 使用 SQuAD v1.1 的完整证据段和无答案干扰段构造长上下文，验证模型能否在指定长度内找到正确答案。生成器默认支持 0.5k、4k、8k、16k、31k，也可通过 `--lengths` 指定任意正整数 token 长度。
+`serve_test/long_context_accuracy.py` 使用 SQuAD v1.1 的完整证据段和无答案干扰段构造长上下文，验证模型能否在指定长度内找到正确答案。生成器默认支持 0.5k、4k、8k、16k、28k，也可通过 `--lengths` 指定任意正整数 token 长度。
 
 以 Qwen3.5-4B eager 为例，先可选地生成或补齐完整回归数据：
 
@@ -190,14 +190,14 @@ cd vllm_scripts
 python serve_test/long_context_accuracy.py \
   --prepare-only \
   -e presets/serial/Qwen3.5-4B_dp1_tp1_eager.sh \
-  --lengths 0.5k,4k,8k,16k,31k \
+  --lengths 0.5k,4k,8k,16k,28k \
   --answer-depth 0.85 \
   --max-tokens 256 \
   --disable-thinking \
   --results-dir serve_test/long_context_results/qwen35_prepare_<run-id>
 ```
 
-用例会写入 `serve_test/long_context_data/long_context_squad_cases.jsonl`。文件可同时保留不同 tokenizer、答案深度和长度的数据；补生部分长度不会删除其他已有用例。仅当需要强制重建当前 tokenizer/深度下的所选长度时才加 `--force-prepare`。
+用例会写入 `serve_test/long_context_data/long_context_squad_cases.jsonl`。每个答案深度和名义长度只保留一份文本，`tokenizer_name` 记录生成来源，但不限制该用例可测试的模型。生成预算比名义档位高 `max(16 tokens, 1%)`，使 0.5k、4k、8k 等用例在来源 tokenizer 下略微越过对应边界；换模型后的实际长度以服务返回的 `usage.prompt_tokens` 为准。仅当需要重建当前深度下的所选长度时才加 `--force-prepare`。
 
 然后使用两个终端执行实际测试。终端 1 启动并保持服务：
 
@@ -248,7 +248,7 @@ python serve_test/long_context_accuracy.py \
 
 依据段是供人工复核的说明，自动评分不检查其句数或排版。人工仍应确认依据没有否定最终答案或给出相互矛盾的结论。实际输入长度以 `*_meta.json` 中 `usage_snapshots[-1].prompt_tokens` 为准。
 
-长度参数也可用于精确边界数据生成：
+长度参数也可用于自定义名义档位：
 
 ```bash
 python serve_test/long_context_accuracy.py \
@@ -264,7 +264,7 @@ python serve_test/long_context_accuracy.py \
 请求前脚本会检查：
 
 ```text
-target_input_tokens + max_tokens <= USER_VLLM_MAX_MODEL_LEN
+runtime_estimated_input_tokens + max_tokens <= USER_VLLM_MAX_MODEL_LEN
 ```
 
 当前开发套件默认 `USER_VLLM_MAX_MODEL_LEN=32768`，因此 32k prompt 再要求输出会在请求前失败，64k 也不在该服务配置的支持范围。需要测试这些长度时，必须先提高服务上限并预留输出 token 空间。

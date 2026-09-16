@@ -12,7 +12,7 @@
 #
 # 说明:
 #   本脚本下载公开 SQuAD v1.1 数据集，并用真实 Wikipedia QA 段落拼接
-#   默认生成 0.5k/4k/8k/16k/31k 长上下文用例，也支持 --lengths
+#   默认生成 0.5k/4k/8k/16k/28k 长上下文用例，也支持 --lengths
 #   指定任意正整数 token 长度。每个用例包含标准答案，
 #   方便人工检查模型输出的逻辑性和准确性。
 
@@ -29,6 +29,7 @@ import time
 import traceback
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from datetime import datetime
@@ -39,8 +40,10 @@ from typing import Any
 SQUAD_DEV_URL = (
     "https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v1.1.json"
 )
-DEFAULT_LENGTHS = [512, 4096, 8192, 16384, 31744]
-CASE_FORMAT_VERSION = 3
+DEFAULT_LENGTHS = [512, 4096, 8192, 16384, 28672]
+CASE_FORMAT_VERSION = 5
+MIN_INPUT_HEADROOM_TOKENS = 16
+INPUT_HEADROOM_PERCENT = 1
 CSV_FIELDS = [
     "time",
     "run_index",
@@ -48,6 +51,7 @@ CSV_FIELDS = [
     "case_id",
     "target_input_tokens",
     "estimated_input_tokens",
+    "runtime_estimated_input_tokens",
     "success",
     "status",
     "elapsed_seconds",
@@ -159,6 +163,29 @@ def append_unique(values: list[str], value: Any) -> None:
         values.append(text)
 
 
+def run_case_batch(
+    cases: list[dict[str, Any]],
+    run_one: Any,
+    multi_stream: bool,
+) -> list[dict[str, Any]]:
+    if not multi_stream:
+        return [run_one(case) for case in cases]
+    with ThreadPoolExecutor(max_workers=len(cases)) as executor:
+        futures = [executor.submit(run_one, case) for case in cases]
+        return [future.result() for future in futures]
+
+
+def print_saved_reply(result: dict[str, Any]) -> None:
+    case_id = result["case_id"]
+    output_path = Path(result["output_file"])
+    print(f"\n[回复] {case_id}: begin")
+    if output_path.is_file():
+        print(output_path.read_text(encoding="utf-8"), end="")
+    else:
+        print("[无输出文件]", end="")
+    print(f"\n[回复] {case_id}: end", flush=True)
+
+
 def exception_details(exc: BaseException) -> dict[str, Any]:
     details = {
         "exception_type": type(exc).__name__,
@@ -225,6 +252,9 @@ def write_csv_result(
             "case_id": result.get("case_id"),
             "target_input_tokens": result.get("target_input_tokens"),
             "estimated_input_tokens": result.get("estimated_input_tokens"),
+            "runtime_estimated_input_tokens": result.get(
+                "runtime_estimated_input_tokens"
+            ),
             "success": bool(result.get("contains_expected_answer")),
             "status": status,
             "elapsed_seconds": result.get("elapsed_seconds"),
@@ -389,6 +419,14 @@ def format_case_id(target_tokens: int) -> str:
     return f"{text}k"
 
 
+def generation_target_tokens(nominal_tokens: int) -> int:
+    """Keep nominal length labels while placing prompts just above the boundary."""
+    percentage_headroom = (
+        nominal_tokens * INPUT_HEADROOM_PERCENT + 99
+    ) // 100
+    return nominal_tokens + max(MIN_INPUT_HEADROOM_TOKENS, percentage_headroom)
+
+
 def download_file(url: str, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if output_path.exists() and output_path.stat().st_size > 0:
@@ -510,6 +548,7 @@ def build_case(
     counter: TokenCounter,
     answer_depth: float,
 ) -> dict[str, Any]:
+    padded_target_tokens = generation_target_tokens(target_tokens)
     record = choose_record(records, case_index)
     footer = USER_FOOTER.format(question=record["question"])
     empty_messages = [
@@ -517,7 +556,7 @@ def build_case(
         {"role": "user", "content": USER_HEADER + footer},
     ]
     fixed_tokens = counter.count_messages(empty_messages)
-    context_budget = max(0, target_tokens - fixed_tokens - 8)
+    context_budget = max(0, padded_target_tokens - fixed_tokens - 8)
 
     answer_doc = format_doc(
         case_index,
@@ -535,9 +574,17 @@ def build_case(
                 {"role": "user", "content": USER_HEADER + candidate_footer},
             ]
             candidate_budget = max(
-                0, target_tokens - counter.count_messages(candidate_messages) - 8
+                0,
+                padded_target_tokens
+                - counter.count_messages(candidate_messages)
+                - 8,
             )
-            candidate_doc = format_doc(case_index, candidate["title"], candidate["context"], marker="ANSWER_DOC")
+            candidate_doc = format_doc(
+                case_index,
+                candidate["title"],
+                candidate["context"],
+                marker="ANSWER_DOC",
+            )
             candidate_tokens = counter.count(candidate_doc)
             if candidate_tokens <= candidate_budget:
                 record, footer = candidate, candidate_footer
@@ -545,7 +592,9 @@ def build_case(
                 context_budget = candidate_budget
                 break
         else:
-            raise ValueError(f"No complete QA document fits {target_tokens} tokens")
+            raise ValueError(
+                f"No complete QA document fits {padded_target_tokens} tokens"
+            )
     # Distractors must not leak the answer before the requested answer depth.
     normalized_answers = [normalize_answer(answer) for answer in record["answers"]]
     excluded_contexts = {
@@ -594,6 +643,7 @@ def build_case(
         "requested_answer_depth": answer_depth,
         "case_id": format_case_id(target_tokens),
         "target_input_tokens": target_tokens,
+        "generation_target_input_tokens": padded_target_tokens,
         "estimated_input_tokens": actual_tokens,
         "answer_depth": round(answer_offset_tokens / max(actual_tokens, 1), 4),
         "dataset": "SQuAD v1.1 dev",
@@ -612,13 +662,12 @@ def prepare_cases(
     trust_remote_code: bool,
     force: bool,
     answer_depth: float,
-) -> tuple[Path, str]:
+) -> Path:
     data_dir.mkdir(parents=True, exist_ok=True)
     raw_path = data_dir / "squad_dev_v1.1.json"
     cases_path = data_dir / "long_context_squad_cases.jsonl"
 
     download_file(SQUAD_DEV_URL, raw_path)
-    counter = TokenCounter.create(tokenizer_name, trust_remote_code)
     wanted = {format_case_id(length) for length in lengths}
     cached_cases: list[dict[str, Any]] = []
     if cases_path.exists():
@@ -630,7 +679,6 @@ def prepare_cases(
     def compatible(case: dict[str, Any]) -> bool:
         return (
             case.get("case_format_version") == CASE_FORMAT_VERSION
-            and case.get("tokenizer_name") == counter.name
             and case.get("requested_answer_depth") == answer_depth
         )
 
@@ -639,13 +687,14 @@ def prepare_cases(
     }
     missing = sorted(wanted if force else wanted - existing)
     if not missing:
-        return cases_path, counter.name
+        return cases_path
     if cases_path.exists():
         print(
             "[数据] 已有用例缺失或生成配置过期: "
             f"{', '.join(missing)}，重新生成: {cases_path}"
         )
 
+    counter = TokenCounter.create(tokenizer_name, trust_remote_code)
     records = load_squad_records(raw_path)
     fillers = unique_filler_contexts(records)
 
@@ -671,6 +720,12 @@ def prepare_cases(
             counter,
             answer_depth,
         )
+        if case["estimated_input_tokens"] <= target_tokens:
+            raise RuntimeError(
+                f"{case_id} 生成后的输入估算为 "
+                f"{case['estimated_input_tokens']} tokens，未超过名义档位 "
+                f"{target_tokens}"
+            )
         generated.append(case)
         print(
             "[数据] 生成用例 "
@@ -679,8 +734,8 @@ def prepare_cases(
             f"{case['answer_depth']}, expected={case['answers'][:3]}"
         )
 
-    # 仅保留当前格式的其他配置/长度；新生成某个配置时不覆盖
-    # 同文件中其他 tokenizer 或 answer depth 的用例。
+    # 每个答案深度和名义长度只保留一份文本。tokenizer_name 仅记录
+    # 生成来源，不作为缓存分区；显式 force 时替换对应长度。
     generated_ids = {case["case_id"] for case in generated}
     retained = [
         case for case in cached_cases
@@ -690,7 +745,6 @@ def prepare_cases(
     all_cases = retained + generated
     all_cases.sort(
         key=lambda case: (
-            str(case.get("tokenizer_name", "")),
             float(case.get("requested_answer_depth", 0)),
             int(case.get("target_input_tokens", 0)),
         )
@@ -700,13 +754,12 @@ def prepare_cases(
             out.write(json.dumps(case, ensure_ascii=False) + "\n")
 
     print(f"[数据] 用例已保存: {cases_path}")
-    return cases_path, counter.name
+    return cases_path
 
 
 def load_cases(
     cases_path: Path,
     lengths: list[int],
-    tokenizer_name: str | None = None,
     answer_depth: float | None = None,
 ) -> list[dict[str, Any]]:
     wanted = {format_case_id(length) for length in lengths}
@@ -718,7 +771,6 @@ def load_cases(
             case = json.loads(line)
             if (
                 case["case_id"] in wanted
-                and (tokenizer_name is None or case.get("tokenizer_name") == tokenizer_name)
                 and (answer_depth is None or case.get("requested_answer_depth") == answer_depth)
             ):
                 cases.append(case)
@@ -797,7 +849,9 @@ def run_case(
     meta_path = output_dir / f"{case_id}_meta.json"
     print(
         f"[测试] {case_id}: estimated_input_tokens="
-        f"{case['estimated_input_tokens']}, answer_depth={case['answer_depth']}",
+        f"{case['estimated_input_tokens']}, runtime_estimated_input_tokens="
+        f"{case.get('runtime_estimated_input_tokens')}, "
+        f"answer_depth={case['answer_depth']}",
         flush=True,
     )
     print(f"[测试] {case_id}: question={case['question']}", flush=True)
@@ -948,6 +1002,9 @@ def run_case(
         "case_id": case_id,
         "model": model_name,
         "estimated_input_tokens": case["estimated_input_tokens"],
+        "runtime_estimated_input_tokens": case.get(
+            "runtime_estimated_input_tokens"
+        ),
         "target_input_tokens": case["target_input_tokens"],
         "answer_depth": case["answer_depth"],
         "question": case["question"],
@@ -1029,7 +1086,7 @@ def parse_args() -> argparse.Namespace:
   # 只下载并生成固定长上下文测试数据
   python serve_test/long_context_accuracy.py --prepare-only
 
-  # 默认测试 0.5k/4k/8k/16k/31k，31k 为输出预留空间
+  # 默认测试 0.5k/4k/8k/16k/28k，28k 为跨 tokenizer 波动和输出预留空间
   python serve_test/long_context_accuracy.py -e ./presets/serial/xxx.sh
 
   # 重复完整长度列表 3 次
@@ -1040,6 +1097,9 @@ def parse_args() -> argparse.Namespace:
 
   # 请求始终使用流式；下面选项只开启终端实时回显
   python serve_test/long_context_accuracy.py --stream
+
+  # 同一轮中的所有长度并发请求；回复完成后按用例分别回显
+  python serve_test/long_context_accuracy.py --lengths 0.5k,4k,8k --multi-stream --stream
 
   # 显式关闭 thinking（默认开启）
   python serve_test/long_context_accuracy.py --disable-thinking
@@ -1063,6 +1123,12 @@ def parse_args() -> argparse.Namespace:
         help="数据缓存目录，默认 serve_test/long_context_data",
     )
     parser.add_argument(
+        "--cases-file",
+        type=Path,
+        default=None,
+        help="直接读取已有 JSONL 用例，跳过数据生成",
+    )
+    parser.add_argument(
         "--results-dir",
         default=None,
         help="结果输出目录，默认 serve_test/long_context_results/<timestamp>",
@@ -1080,7 +1146,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--tokenizer",
         default=None,
-        help="用于估算 token 的 tokenizer 路径或名称，默认使用 USER_VLLM_MODEL",
+        help="用于生成和请求前重算 token 的 tokenizer，默认使用 USER_VLLM_MODEL",
     )
     parser.add_argument(
         "--trust-remote-code",
@@ -1115,6 +1181,11 @@ def parse_args() -> argparse.Namespace:
         "--stream",
         action="store_true",
         help="开启终端实时回显；请求始终流式写入文件，默认不回显",
+    )
+    parser.add_argument(
+        "--multi-stream",
+        action="store_true",
+        help="并发执行同一轮的全部长度；使用 --stream 时在完成后逐项回显回复",
     )
     thinking_group = parser.add_mutually_exclusive_group()
     thinking_group.add_argument(
@@ -1174,11 +1245,11 @@ def main() -> None:
         model_name = env_vars.get("USER_VLLM_MODEL", "")
         tokenizer_name = args.tokenizer or model_name or None
         max_model_len_text = env_vars.get("USER_VLLM_MAX_MODEL_LEN")
-        if max_model_len_text:
-            max_model_len = int(max_model_len_text)
+        max_model_len = int(max_model_len_text) if max_model_len_text else None
+        if args.prepare_only and max_model_len is not None:
             invalid = [
                 length for length in lengths
-                if length + args.max_tokens > max_model_len
+                if generation_target_tokens(length) + args.max_tokens > max_model_len
             ]
             if invalid:
                 invalid_text = ", ".join(format_case_id(length) for length in invalid)
@@ -1187,14 +1258,21 @@ def main() -> None:
                     f"超过 USER_VLLM_MAX_MODEL_LEN={max_model_len}；"
                     "请减小 --lengths/--max-tokens 或提高服务上限"
                 )
-        cases_path, resolved_tokenizer_name = prepare_cases(
-            data_dir=data_dir,
-            lengths=lengths,
-            tokenizer_name=tokenizer_name,
-            trust_remote_code=args.trust_remote_code,
-            force=args.force_prepare,
-            answer_depth=args.answer_depth,
-        )
+        if args.cases_file is not None:
+            if args.prepare_only:
+                raise SystemExit("[错误] --cases-file 不能和 --prepare-only 一起使用")
+            cases_path = args.cases_file.resolve()
+            if not cases_path.is_file():
+                raise SystemExit(f"[错误] 用例文件不存在: {cases_path}")
+        else:
+            cases_path = prepare_cases(
+                data_dir=data_dir,
+                lengths=lengths,
+                tokenizer_name=tokenizer_name,
+                trust_remote_code=args.trust_remote_code,
+                force=args.force_prepare,
+                answer_depth=args.answer_depth,
+            )
 
         if args.prepare_only:
             print("[完成] 数据准备完成，未请求 vLLM 服务。")
@@ -1204,13 +1282,39 @@ def main() -> None:
         if not model_name:
             raise SystemExit("[错误] USER_VLLM_MODEL 未设置")
 
-        api_base = check_server_ready(port).rsplit("/v1/models", 1)[0] + "/v1"
         cases = load_cases(
             cases_path,
             lengths,
-            tokenizer_name=resolved_tokenizer_name,
             answer_depth=args.answer_depth,
         )
+        runtime_counter = TokenCounter.create(
+            tokenizer_name,
+            args.trust_remote_code,
+        )
+        for case in cases:
+            case["runtime_estimated_input_tokens"] = runtime_counter.count_messages(
+                case["messages"]
+            )
+        if max_model_len is not None:
+            invalid_cases = [
+                case
+                for case in cases
+                if case["runtime_estimated_input_tokens"] + args.max_tokens
+                > max_model_len
+            ]
+            if invalid_cases:
+                invalid_text = ", ".join(
+                    f"{case['case_id']}="
+                    f"{case['runtime_estimated_input_tokens']}"
+                    for case in invalid_cases
+                )
+                raise SystemExit(
+                    f"[错误] 当前 tokenizer 重算的输入长度 {invalid_text}，"
+                    f"加输出预算 {args.max_tokens} 后超过 "
+                    f"USER_VLLM_MAX_MODEL_LEN={max_model_len}；"
+                    "请减小 --lengths/--max-tokens 或提高服务上限"
+                )
+        api_base = check_server_ready(port).rsplit("/v1/models", 1)[0] + "/v1"
         try:
             from openai import OpenAI
         except Exception as exc:
@@ -1229,10 +1333,14 @@ def main() -> None:
         print(f"[测试] 用例文件: {cases_path}")
         print(f"[测试] 结果目录: {output_dir}")
         print(f"[测试] 重复次数: {args.n}")
+        print(f"[测试] 多流并发: {'开启' if args.multi_stream else '关闭'}")
         print(f"[日志] CSV: {csv_path}")
-        echo_stream = args.stream
+        echo_stream = args.stream and not args.multi_stream
         print("[测试] 流式请求: 开启，流式写入文件")
-        print(f"[测试] 实时回显: {'开启' if echo_stream else '关闭'}")
+        if args.multi_stream and args.stream:
+            print("[测试] 回复回显: 各并发请求完成后按用例分别打印")
+        else:
+            print(f"[测试] 实时回显: {'开启' if echo_stream else '关闭'}")
 
         results = []
         with csv_path.open("w", encoding="utf-8", newline="", buffering=1) as csv_file:
@@ -1264,14 +1372,16 @@ def main() -> None:
                             "temperature": args.temperature,
                             "timeout": args.timeout,
                             "stream_echo": echo_stream,
+                            "multi_stream": args.multi_stream,
                             "enable_thinking": args.enable_thinking,
                         },
                         ensure_ascii=False,
                     ),
                     flush=True,
                 )
-                for case in cases:
-                    result = run_case(
+
+                def run_one(case: dict[str, Any]) -> dict[str, Any]:
+                    return run_case(
                         client=client,
                         model_name=model_name,
                         case=case,
@@ -1281,6 +1391,11 @@ def main() -> None:
                         enable_thinking=args.enable_thinking,
                         echo_stream=echo_stream,
                     )
+
+                run_results = run_case_batch(cases, run_one, args.multi_stream)
+                for result in run_results:
+                    if args.multi_stream and args.stream:
+                        print_saved_reply(result)
                     result["run_index"] = run_index
                     result["run_total"] = args.n
                     results.append(result)
@@ -1303,6 +1418,7 @@ def main() -> None:
             "model": model_name,
             "port": port,
             "repeat_count": args.n,
+            "multi_stream": args.multi_stream,
             "cases_path": str(cases_path),
             "log_file": str(log_path),
             "csv_file": str(csv_path),

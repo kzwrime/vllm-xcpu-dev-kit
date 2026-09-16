@@ -34,6 +34,10 @@ usage() {
   --sparse-indexer-accuracy-test
                      用单次批量请求的两条序列验证 GLM5.2 MXFP4 + FP8 KV-cache 的
                      dense-equivalent / sparse indexer 精度路径
+  --long-context-4k-test
+                     运行冻结 4K 长上下文 QA，打印回复并判断答案是否正确
+  --long-context-multi-test
+                     并发测试 0.5K、4K、8K 长上下文 QA，并打印和判断全部回复
   --multimodal-test  启动服务后运行 serve_test/test_multimodal.py
   --multi-test-max-tokens NUM
                      multi test 每个请求的最大输出 token 数，默认 16
@@ -42,9 +46,9 @@ usage() {
   --bench            启动服务后运行 bench
   --spec-decode      启动服务后运行 serve_test/serve_bench_spec_decode.sh
   --coverage         启动服务后运行 coverage bench，并 dump shapes
-  --profile          在普通测试、multi test 或 multimodal test 前后调用 vLLM profiler
+  --profile          在普通、multi、multimodal、sparse-indexer 或长上下文测试前后调用 profiler
   --test-timeout SECONDS
-                     测试 / multi test / multimodal test / bench（含 spec decode）
+                     测试 / multi test / multimodal test / 长上下文 / bench（含 spec decode）
                      最长运行时间（秒），默认不限制
   --pd               以 P/D 分离模式运行
   --launcher MODE    强制指定启动方式: auto | mp | mpi
@@ -109,6 +113,14 @@ while [ $# -gt 0 ]; do
             ;;
         --sparse-indexer-accuracy-test)
             TEST_MODE="sparse_indexer_accuracy"
+            shift
+            ;;
+        --long-context-4k-test)
+            TEST_MODE="long_context_4k"
+            shift
+            ;;
+        --long-context-multi-test)
+            TEST_MODE="long_context_multi"
             shift
             ;;
         --multimodal-test)
@@ -222,10 +234,10 @@ if [ "$PROFILE_TEST" -eq 1 ]; then
     fi
 
     case "$TEST_MODE" in
-        test|multi|multimodal|sparse_indexer_accuracy)
+        test|multi|multimodal|sparse_indexer_accuracy|long_context_4k|long_context_multi)
             ;;
         *)
-            log_error "--profile 只能和普通测试、--multi-test 或 --multimodal-test 一起使用"
+            log_error "--profile 只能用于普通、multi、multimodal、sparse-indexer 或长上下文测试"
             exit 1
             ;;
     esac
@@ -551,6 +563,51 @@ run_test() {
         fi
         log_info "测试日志: $TEST_LOG"
         cat "$TEST_LOG"
+    elif [ "$TEST_MODE" = "long_context_4k" ]; then
+        local results_dir="$SCRIPT_DIR/serve_test/long_context_results/4k_${PRESET_NAME}_${RUN_START_TS}"
+        log_info "运行冻结 4K 长上下文 QA 测试..."
+        [ -n "$TEST_TIMEOUT" ] && log_info "4K QA 测试最长运行时间: ${TEST_TIMEOUT} 秒"
+        CURRENT_RUN_OUTPUT_LOGS+=("$TEST_LOG")
+        if run_with_test_timeout python "$SCRIPT_DIR/serve_test/long_context_accuracy.py" \
+            "${TEST_ENV_ARGS[@]}" \
+            --cases-file "$SCRIPT_DIR/serve_test/long_context_data/long_context_squad_cases.jsonl" \
+            --lengths 4k \
+            --disable-thinking \
+            --temperature 0 \
+            --max-tokens 256 \
+            --timeout 7200 \
+            --stream \
+            --results-dir "$results_dir" 2>&1 | tee "$TEST_LOG"; then
+            log_success "4K 长上下文 QA 测试通过"
+        else
+            TEST_EXIT_CODE=$?
+            log_test_exit "4K 长上下文 QA 测试失败" "$TEST_EXIT_CODE"
+        fi
+        log_info "测试日志: $TEST_LOG"
+        log_info "测试结果: $results_dir"
+    elif [ "$TEST_MODE" = "long_context_multi" ]; then
+        local results_dir="$SCRIPT_DIR/serve_test/long_context_results/multi_0.5k_4k_8k_${PRESET_NAME}_${RUN_START_TS}"
+        log_info "并发运行 0.5K、4K、8K 长上下文 QA 测试..."
+        [ -n "$TEST_TIMEOUT" ] && log_info "长上下文并发测试最长运行时间: ${TEST_TIMEOUT} 秒"
+        CURRENT_RUN_OUTPUT_LOGS+=("$TEST_LOG")
+        if run_with_test_timeout python "$SCRIPT_DIR/serve_test/long_context_accuracy.py" \
+            "${TEST_ENV_ARGS[@]}" \
+            --cases-file "$SCRIPT_DIR/serve_test/long_context_data/long_context_squad_cases.jsonl" \
+            --lengths 0.5k,4k,8k \
+            --multi-stream \
+            --disable-thinking \
+            --temperature 0 \
+            --max-tokens 256 \
+            --timeout 7200 \
+            --stream \
+            --results-dir "$results_dir" 2>&1 | tee "$TEST_LOG"; then
+            log_success "0.5K、4K、8K 长上下文并发测试通过"
+        else
+            TEST_EXIT_CODE=$?
+            log_test_exit "0.5K、4K、8K 长上下文并发测试失败" "$TEST_EXIT_CODE"
+        fi
+        log_info "测试日志: $TEST_LOG"
+        log_info "测试结果: $results_dir"
     elif [ "$TEST_MODE" = "multimodal" ]; then
         log_info "运行 multimodal test..."
         [ -n "$TEST_TIMEOUT" ] && log_info "Multimodal test 最长运行时间: ${TEST_TIMEOUT} 秒"
@@ -676,7 +733,7 @@ fi
 echo ""
 log_info "日志文件位置:"
 launcher_print_service_locations
-if [ "$TEST_MODE" = "test" ] || [ "$TEST_MODE" = "multi" ] || [ "$TEST_MODE" = "multimodal" ] || [ "$TEST_MODE" = "sparse_indexer_accuracy" ]; then
+if [ "$TEST_MODE" = "test" ] || [ "$TEST_MODE" = "multi" ] || [ "$TEST_MODE" = "multimodal" ] || [ "$TEST_MODE" = "sparse_indexer_accuracy" ] || [ "$TEST_MODE" = "long_context_4k" ] || [ "$TEST_MODE" = "long_context_multi" ]; then
     log_info "  Test:  $TEST_LOG"
 elif [ "$TEST_MODE" = "bench" ] || [ "$TEST_MODE" = "spec_decode" ] || [ "$TEST_MODE" = "coverage" ]; then
     log_info "  Bench: $BENCH_LOG"
