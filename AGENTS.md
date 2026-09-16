@@ -41,6 +41,8 @@ vllm_scripts/presets/serial/Qwen3.5-0.8B_dp1_tp1_eager.sh
 
 日志一般在 ./vllm_scripts/logs
 
+Compile 产物一般在 ./vllm_scripts/vllm_cache。涉及 compile 相关的调试时，建议提前删除/重命名该目录，否则可能存在不便定位或缓存污染的问题。
+
 # torch_mcpu 内存保护
 
 常规测试、测试性能相关问题时，应当修改 torch_mcpu 的 build.sh，添加 export TORCH_MCPU_ENABLE_MEMORY_PROTECTION="OFF"，然后重新编译。以提高运行速度。然后重编其他库。
