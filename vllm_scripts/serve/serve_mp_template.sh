@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -eo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # 加载通用函数
@@ -14,6 +16,8 @@ fi
 
 # 解析命令行参数并加载环境配置
 parse_args_and_load_env "$SCRIPT_DIR/.." "$@"
+RUN_LOG_DIR="${VLLM_RUN_LOG_DIR:-$SCRIPT_DIR/../logs}"
+mkdir -p "$RUN_LOG_DIR"
 
 echo "--- 📝 vLLM 服务配置参数检查与设置 ---"
 
@@ -42,7 +46,7 @@ VLLM_LOGGING_LEVEL=${USER_VLLM_LOGGING_LEVEL} vllm serve ${USER_VLLM_MODEL} \
   --port ${USER_VLLM_PORT} \
   ${USER_VLLM_EAGER_OR_NOT} \
   ${VLLM_OPTIONAL_ARGS} \
-  --data-parallel-size ${USER_VLLM_DATA_PARALLEL_SIZE} 2>&1 | tee logs/vllm_serve_log.txt
+  --data-parallel-size ${USER_VLLM_DATA_PARALLEL_SIZE} 2>&1 | tee "$RUN_LOG_DIR/vllm_serve_log.txt"
 
 # 检查 vLLM 命令的退出状态
 if [ $? -ne 0 ]; then

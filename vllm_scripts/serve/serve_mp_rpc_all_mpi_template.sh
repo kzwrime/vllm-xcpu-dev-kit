@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../"
 
@@ -16,17 +16,22 @@ fi
 
 # 解析命令行参数并加载环境配置
 parse_args_and_load_env "$SCRIPT_DIR" "$@"
+RUN_LOG_DIR="${VLLM_RUN_LOG_DIR:-$SCRIPT_DIR/logs}"
+mkdir -p "$RUN_LOG_DIR"
 
 load_env_file "$SCRIPT_DIR/mpi_tools/mpi_get_rank_size.sh"
 
 RANK="$MPI_RANK_DETECT"
 SIZE="$MPI_SIZE_DETECT"
+if [ "${VLLM_XCPU_ENABLE_AF_EP:-0}" = 1 ]; then
+    echo "AFD placement role=A host=$(hostname) global_rank=${OMPI_COMM_WORLD_RANK:-?} local_rank=${OMPI_COMM_WORLD_LOCAL_RANK:-?}"
+fi
 
 # --- MPI Coordination Setup ---
 if [ "${VLLM_USE_MPI_COORD:-0}" == "1" ]; then
     COORD_PORT=${VLLM_MPI_COORD_PORT:-15555}
     COORD_SCRIPT="$SCRIPT_DIR/mpi_tools/mpi_coord_setup.py"
-    COORD_TMP_DIR="$SCRIPT_DIR/logs/tmp"
+    COORD_TMP_DIR="$RUN_LOG_DIR/tmp"
     mkdir -p "$COORD_TMP_DIR"
     export VLLM_MPI_ENV_EXPORT_FILE="$COORD_TMP_DIR/vllm_mpi_env_rank_${RANK}.sh"
 
@@ -112,7 +117,7 @@ if [ $MPC_RANK -eq 0 ]; then
           --data-parallel-start-rank ${DP_RANK} \
           --data-parallel-address ${USER_VLLM_DATA_PARALLEL_ADDRESS} \
           --data-parallel-rpc-ip ${USER_VLLM_DATA_PARALLEL_RPC_IP} \
-          --data-parallel-rpc-port ${USER_VLLM_DATA_PARALLEL_RPC_PORT} 2>&1 | tee logs/vllm_serve_log_dp_rank${DP_RANK}.txt
+          --data-parallel-rpc-port ${USER_VLLM_DATA_PARALLEL_RPC_PORT} 2>&1 | tee "$RUN_LOG_DIR/vllm_serve_log_dp_rank${DP_RANK}.txt"
         #   --data-parallel-rpc-ip ${USER_VLLM_DATA_PARALLEL_RPC_IP} \
     ) &
     # 保存后台进程的PID，以便后续管理
@@ -125,7 +130,7 @@ echo "[RANK=$RANK][DP_RANK=$DP_RANK][MPC_RANK=$MPC_RANK] Starting vLLM mp_rpc_wo
     VLLM_LOGGING_LEVEL=${USER_VLLM_LOGGING_LEVEL} python3 -m vllm.v1.executor.run_mp_rpc_worker \
       --rank $MPC_RANK \
       --local-rank $MPC_INNER_RANK \
-      --executor-ip ${ExecutorIP} 2>&1 | tee logs/vllm_worker_log_rank${RANK}.txt
+      --executor-ip ${ExecutorIP} 2>&1 | tee "$RUN_LOG_DIR/vllm_worker_log_rank${RANK}.txt"
 )
 
 # sleep 20

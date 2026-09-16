@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../"
 
@@ -16,14 +16,16 @@ fi
 
 # 解析命令行参数并加载环境配置
 parse_args_and_load_env "$SCRIPT_DIR" "$@"
+RUN_LOG_DIR="${VLLM_RUN_LOG_DIR:-$SCRIPT_DIR/logs}"
+mkdir -p "$RUN_LOG_DIR"
 
 # --- MPI Coordination Setup ---
 # Start the coordination server if enabled
 if [ "${VLLM_USE_MPI_COORD:-0}" == "1" ]; then
     COORD_PORT=${VLLM_MPI_COORD_PORT:-15555}
     COORD_SCRIPT="$SCRIPT_DIR/mpi_tools/mpi_coord_setup.py"
-    COORD_LOG="logs/coord_server.log"
-    COORD_TMP_DIR="$SCRIPT_DIR/logs/tmp"
+    COORD_LOG="$RUN_LOG_DIR/coord_server.log"
+    COORD_TMP_DIR="$RUN_LOG_DIR/tmp"
 
     mkdir -p "$(dirname "$COORD_LOG")"
     mkdir -p "$COORD_TMP_DIR"
@@ -37,7 +39,7 @@ if [ "${VLLM_USE_MPI_COORD:-0}" == "1" ]; then
     EXPECTED_RANKS=${VLLM_MPI_COORD_EXPECTED_RANKS:-$((USER_VLLM_DATA_PARALLEL_SIZE * USER_VLLM_MPC_SIZE))}
 
     # Start coordination server (runs until all workers connect)
-    export VLLM_MPI_ENV_EXPORT_FILE="${VLLM_MPI_ENV_EXPORT_FILE:-$COORD_TMP_DIR/vllm_mpi_env_server.sh}"
+    export VLLM_MPI_ENV_EXPORT_FILE="$COORD_TMP_DIR/vllm_mpi_env_server.sh"
     python3 "$COORD_SCRIPT" --server \
         --port $COORD_PORT \
         --expected-ranks $EXPECTED_RANKS \
@@ -82,7 +84,7 @@ VLLM_LOGGING_LEVEL=${USER_VLLM_LOGGING_LEVEL} vllm serve ${USER_VLLM_MODEL} \
   --data-parallel-size-local 0 \
   --data-parallel-address ${USER_VLLM_DATA_PARALLEL_ADDRESS} \
   --data-parallel-rpc-ip ${USER_VLLM_DATA_PARALLEL_RPC_IP} \
-  --data-parallel-rpc-port ${USER_VLLM_DATA_PARALLEL_RPC_PORT} 2>&1 | tee logs/vllm_head_log.txt
+  --data-parallel-rpc-port ${USER_VLLM_DATA_PARALLEL_RPC_PORT} 2>&1 | tee "$RUN_LOG_DIR/vllm_head_log.txt"
 
 # 检查 vLLM 命令的退出状态
 if [ $? -ne 0 ]; then

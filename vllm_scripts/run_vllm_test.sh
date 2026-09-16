@@ -4,13 +4,12 @@
 set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_DIR="${VLLM_TEST_LOG_DIR:-$SCRIPT_DIR/logs}"
-if [[ "$LOG_DIR" != /* ]]; then
-    LOG_DIR="$PWD/${LOG_DIR#./}"
+LOG_ROOT="${VLLM_TEST_LOG_DIR:-$SCRIPT_DIR/logs}"
+if [[ "$LOG_ROOT" != /* ]]; then
+    LOG_ROOT="$PWD/${LOG_ROOT#./}"
 fi
-BACKUP_ROOT="$LOG_DIR/backups"
-SUCCESS_ROOT="$LOG_DIR/success"
-FAILED_ROOT="$LOG_DIR/failed"
+SUCCESS_ROOT="$LOG_ROOT/success"
+FAILED_ROOT="$LOG_ROOT/failed"
 LAUNCHER_COMMON_SH="$SCRIPT_DIR/launcher_common.sh"
 
 if [ ! -f "$LAUNCHER_COMMON_SH" ]; then
@@ -56,6 +55,9 @@ usage() {
   -h, --help         显示帮助
 
 环境变量:
+  VLLM_MPI_HOSTFILE   MPI hostfile 路径；统一分配 A/F rank，并用于 AFD 远端清理
+  USER_VLLM_DATA_PARALLEL_RPC_IP
+                       API/head 的 RPC 地址；跨节点时应为可路由地址
   VLLM_TEST_LOG_DIR   本次运行的日志根目录，默认 <vllm_scripts>/logs
   VLLM_TEST_MAX_WAIT   服务启动最大等待时间（秒），默认 300
                        未显式设置 VLLM_ENGINE_READY_TIMEOUT_S 时，也用于
@@ -314,93 +316,16 @@ PY
 
 launcher_auto_configure_modelscope
 launcher_check_required_env
-mkdir -p "$BACKUP_ROOT" "$SUCCESS_ROOT" "$FAILED_ROOT"
+source "$SCRIPT_DIR/test_log_lifecycle.sh"
+test_prepare_log_directory
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 launcher_prepare_runtime "run_vllm_test.log"
 
 TEST_LOG="$LOG_DIR/test.log"
 BENCH_LOG="$LOG_DIR/bench.log"
 PROFILER_LOG="$LOG_DIR/profiler.log"
-
-backup_old_logs() {
-    local files=()
-    local file
-    local latest_mtime=0
-    local backup_stamp
-    local backup_dir
-
-    while IFS= read -r -d '' file; do
-        files+=("$file")
-        local mtime
-        mtime=$(stat -c %Y "$file")
-        if [ "$mtime" -gt "$latest_mtime" ]; then
-            latest_mtime="$mtime"
-        fi
-    done < <(find "$LOG_DIR" -maxdepth 1 -type f ! -name '.gitignore' -print0)
-
-    [ "${#files[@]}" -eq 0 ] && return
-
-    backup_stamp=$(date -d "@${latest_mtime}" +%Y%m%d_%H%M%S)
-    backup_dir=$(make_unique_dir "$BACKUP_ROOT" "${backup_stamp}")
-    mkdir -p "$backup_dir"
-
-    for file in "${files[@]}"; do
-        mv "$file" "$backup_dir/"
-    done
-
-    log_info "已备份旧日志到: $backup_dir"
-}
-
-copy_current_logs() {
-    local dest_dir="$1"
-    local file
-    mkdir -p "$dest_dir"
-
-    if [ "$DISAGG_PREFILL" -eq 1 ]; then
-        if [ -n "${PD_ROOT:-}" ] && [ -d "$PD_ROOT" ]; then
-            mkdir -p "$dest_dir/pd"
-            cp -a "$PD_ROOT" "$dest_dir/pd/"
-        fi
-        for file in "${CURRENT_RUN_OUTPUT_LOGS[@]}"; do
-            [ -f "$file" ] && cp -p "$file" "$dest_dir/"
-        done
-        return
-    fi
-
-    while IFS= read -r -d '' file; do
-        cp -p "$file" "$dest_dir/"
-    done < <(find "$LOG_DIR" -maxdepth 1 -type f ! -name '.gitignore' -print0)
-}
-
-archive_run_logs() {
-    local root="$1"
-    local label="$2"
-    local archive_dir
-
-    archive_dir=$(make_unique_dir "$root" "${RUN_START_TS}_${PRESET_TAG}")
-    copy_current_logs "$archive_dir"
-    log_info "${label}日志已归档到: $archive_dir"
-}
-
-cleanup() {
-    local exit_code=$?
-    local archive_root=""
-    local archive_label=""
-
-    if [ "$exit_code" -eq 0 ] && [ "$TEST_MODE" != "none" ]; then
-        archive_root="$SUCCESS_ROOT"
-        archive_label="成功"
-    elif [ "$exit_code" -ne 0 ]; then
-        archive_root="$FAILED_ROOT"
-        archive_label="失败"
-    fi
-
-    launcher_cleanup_processes
-    if [ -n "$archive_root" ]; then
-        archive_run_logs "$archive_root" "$archive_label"
-    fi
-    exit "$exit_code"
-}
-trap cleanup EXIT INT TERM
 
 extract_model_reply() {
     local content=""
@@ -699,11 +624,6 @@ if [ "$TEST_MODE" = "coverage" ]; then
     log_info "Dump shapes 输出目录: $TORCH_XCPU_DUMP_SHAPES_OUTPUT_DIR"
 fi
 
-if [ "$DISAGG_PREFILL" -eq 1 ]; then
-    log_info "P/D 分离模式跳过旧日志备份"
-else
-    backup_old_logs
-fi
 launcher_start_service
 launcher_wait_for_service
 if [ "$DISAGG_PREFILL" -eq 1 ]; then

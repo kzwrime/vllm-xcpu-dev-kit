@@ -370,7 +370,24 @@ launcher_cleanup_process_group() {
 launcher_cleanup_processes() {
     launcher_stop_error_monitor
 
-    if [ "$LAUNCHER" = "mpi" ] && [ -n "${MPI_CLEANUP_LOG:-}" ]; then
+    if [ -n "${VLLM_AF_RUN_ID:-}" ]; then
+        # Stop only this run, including remote descendants detached from mpirun.
+        local signal host cleanup_failed=0
+        for signal in TERM KILL CHECK; do
+            for host in "${AF_CLEANUP_HOSTS[@]}"; do
+                if [ "$host" = "$(hostname)" ] || [ "$host" = localhost ]; then
+                    python "$SCRIPT_DIR/mpi_tools/cleanup_af_run.py" "$VLLM_AF_RUN_ID" "$signal" >> "$MPI_CLEANUP_LOG" 2>&1 || { [ "$signal" != CHECK ] || cleanup_failed=1; }
+                else
+                    ssh -o BatchMode=yes -o ConnectTimeout=5 "$host" python3 - "$VLLM_AF_RUN_ID" "$signal" < "$SCRIPT_DIR/mpi_tools/cleanup_af_run.py" >> "$MPI_CLEANUP_LOG" 2>&1 || { [ "$signal" != CHECK ] || cleanup_failed=1; }
+                fi
+            done
+            [ "$signal" != TERM ] || sleep 5
+        done
+        if [ "$cleanup_failed" -ne 0 ]; then
+            log_error "AFD cleanup verification failed; inspect $MPI_CLEANUP_LOG"
+            return 1
+        fi
+    elif [ "$LAUNCHER" = "mpi" ] && [ -n "${MPI_CLEANUP_LOG:-}" ]; then
         {
             pkill -TERM -f "vllm serve" 2>&1 || true
             pkill -TERM -f "run_mp_rpc_worker" 2>&1 || true
@@ -438,6 +455,14 @@ launcher_wait_for_http_service() {
 
     log_info "等待 $name 服务启动..."
     while [ "$wait_time" -lt "$max_wait" ]; do
+        local pid
+        for pid in "${PIDS[@]}"; do
+            if ! kill -0 "$pid" 2>/dev/null; then
+                log_error "$name 启动进程已退出: pid=$pid"
+                launcher_print_error_details || true
+                return 1
+            fi
+        done
         if models_response=$(curl --silent --fail "http://127.0.0.1:${port}/v1/models" 2>/dev/null); then
             if launcher_models_contains_model "$models_response" "$USER_VLLM_MODEL"; then
                 echo ""
@@ -521,6 +546,43 @@ launcher_start_mpi() {
     log_info "启动模式: mpi"
     log_info "MPI 进程数: $MPI_COUNT"
 
+    local mpi_run_args_string="${VLLM_MPI_RUN_ARGS:---bind-to none --map-by slot}"
+    local mpi_run_args=() mpi_hosts=() af_env_args=()
+    local host name line mpi_hostfile
+    # shellcheck disable=SC2206
+    mpi_run_args=($mpi_run_args_string)
+    if [ -n "${VLLM_MPI_HOSTFILE:-}" ]; then
+        mpi_hostfile=$(realpath -e "$VLLM_MPI_HOSTFILE") || return 1
+        [ -r "$mpi_hostfile" ] || { log_error "Cannot read MPI hostfile: $mpi_hostfile"; return 1; }
+        while IFS= read -r line || [ -n "$line" ]; do
+            line="${line%%#*}"
+            read -r host _ <<< "$line"
+            [ -n "$host" ] || continue
+            [[ "$host" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || { log_error "Invalid MPI host: $host"; return 1; }
+            mpi_hosts+=("$host")
+        done < "$mpi_hostfile"
+        [ "${#mpi_hosts[@]}" -gt 0 ] || { log_error "Empty MPI hostfile: $mpi_hostfile"; return 1; }
+        mpi_run_args+=(--hostfile "$mpi_hostfile")
+    fi
+
+    if [ "${VLLM_XCPU_ENABLE_AF_EP:-0}" = 1 ]; then
+        export VLLM_AF_RUN_ID="afd_$(date +%Y%m%d_%H%M%S)_$$_${RANDOM}"
+        AF_CLEANUP_HOSTS=("$(hostname)")
+        for host in "${mpi_hosts[@]}"; do
+            if [[ " ${AF_CLEANUP_HOSTS[*]} " != *" $host "* ]]; then
+                AF_CLEANUP_HOSTS+=("$host")
+            fi
+        done
+        # Open MPI does not forward arbitrary environment variables over SSH.
+        while IFS= read -r name; do
+            case "$name" in
+                PATH|VIRTUAL_ENV|PYTHONPATH|LD_LIBRARY_PATH|LD_PRELOAD|VLLM_*|USER_VLLM_*|RUN_VLLM_*|TORCH_*|OMP_*|MKL_*|OPENBLAS_*|HF_*|MODELSCOPE_*|QWEN3_*|AFD_*|UCX_*)
+                    af_env_args+=(-x "$name") ;;
+            esac
+        done < <(compgen -e)
+        log_info "AFD run: $VLLM_AF_RUN_ID hostfile=${mpi_hostfile:-local} A ranks=0-$((MPI_COUNT - 1)) F ranks=$MPI_COUNT-$((2 * MPI_COUNT - 1))"
+    fi
+
     setsid bash "$SCRIPT_DIR/serve/serve_head_only_template.sh" "${ENV_ARGS[@]}" > "$LAUNCH_LOG" 2>&1 &
     local head_pid=$!
     record_pid "$head_pid"
@@ -530,13 +592,19 @@ launcher_start_mpi() {
 
     sleep 2
 
-    local mpi_run_args_string="${VLLM_MPI_RUN_ARGS:---bind-to none --map-by slot}"
-    local mpi_run_args=()
-    # shellcheck disable=SC2206
-    mpi_run_args=($mpi_run_args_string)
     log_info "MPI 额外参数: ${mpi_run_args[*]}"
 
-    setsid mpirun "${mpi_run_args[@]}" -np "$MPI_COUNT" bash "$SCRIPT_DIR/serve/serve_mp_rpc_all_mpi_template.sh" "${ENV_ARGS[@]}" >> "$MPI_WORKERS_LOG" 2>&1 &
+    if [ "${VLLM_XCPU_ENABLE_AF_EP:-0}" = "1" ]; then
+        log_info "AF-EP MPMD: A ranks=$MPI_COUNT F ranks=$MPI_COUNT"
+        setsid mpirun "${mpi_run_args[@]}" \
+            "${af_env_args[@]}" --wdir "$PWD" \
+            -np "$MPI_COUNT" bash "$SCRIPT_DIR/serve/serve_mp_rpc_all_mpi_template.sh" "${ENV_ARGS[@]}" \
+            : "${af_env_args[@]}" --wdir "$PWD" \
+            -np "$MPI_COUNT" bash "$SCRIPT_DIR/serve/serve_af_moe_template.sh" "${ENV_ARGS[@]}" \
+            >> "$MPI_WORKERS_LOG" 2>&1 &
+    else
+        setsid mpirun "${mpi_run_args[@]}" -np "$MPI_COUNT" bash "$SCRIPT_DIR/serve/serve_mp_rpc_all_mpi_template.sh" "${ENV_ARGS[@]}" >> "$MPI_WORKERS_LOG" 2>&1 &
+    fi
     local mpi_pid=$!
     record_pid "$mpi_pid"
     log_info "MPI PID: $mpi_pid"
