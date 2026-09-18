@@ -1,5 +1,5 @@
 #!/bin/bash
-# Each invocation owns one directory; archive it once after process cleanup.
+# Each invocation owns one run directory; copy a classified snapshot after cleanup.
 
 test_prepare_log_directory() {
     mkdir -p "$LOG_ROOT/runs" "$SUCCESS_ROOT" "$FAILED_ROOT" "$LOG_ROOT/stopped" || return "$?"
@@ -13,7 +13,8 @@ archive_run_logs() {
     if [ "${DISAGG_PREFILL:-0}" -eq 1 ] && [ -d "${PD_ROOT:-}" ]; then
         cp -a "$PD_ROOT" "$LOG_DIR/pd" || return "$?"
     fi
-    mv "$LOG_DIR" "$archive_dir" || return "$?"
+    cp -a "$LOG_DIR" "$archive_dir" || return "$?"
+    log_info "运行日志保留在: $LOG_DIR"
     log_info "${label}日志已归档到: $archive_dir"
 }
 
