@@ -26,7 +26,7 @@ export USER_VLLM_MPC_SIZE=$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE))
 export VLLM_USE_MPI_COORD=1
 export VLLM_CPU_USE_MPI=1
 
-_VLLM_OPTIONAL_ARGS+=" --all2all-backend all_to_all_single"
+_VLLM_OPTIONAL_ARGS+=" --all2all-backend mpi_alltoallv_v6"
 _VLLM_OPTIONAL_ARGS+=" --kv-cache-dtype fp8"
 _VLLM_OPTIONAL_ARGS+=' --kernel-config {"enable_jit_warmup":false}'
 _VLLM_OPTIONAL_ARGS+=' --tool-call-parser glm47'
