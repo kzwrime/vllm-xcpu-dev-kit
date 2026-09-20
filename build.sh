@@ -10,7 +10,7 @@ cd ${PROJ_HOME}/vllm
 VLLM_TARGET_DEVICE=cpu pip install --no-build-isolation -e .
 pip install pre-commit
 pre-commit install
-pip uninstall triton
+pip uninstall -y triton
 
 cd ${PROJ_HOME}/torch_mcpu
 ./scripts/install-git-hooks.sh
@@ -26,4 +26,3 @@ cd ${PROJ_HOME}/torch_xcpu
 cd ${PROJ_HOME}/vllm-xcpu-plugin
 pip install --no-build-isolation -e .
 ./scripts/install-hooks.sh
-
