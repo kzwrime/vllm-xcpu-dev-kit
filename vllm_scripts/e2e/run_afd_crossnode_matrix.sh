@@ -1,6 +1,6 @@
 #!/bin/bash
 # Shared source tree, venv, and checkpoint paths must exist on every host.
-# A0/A1 run TP2; F0/F1 run EP2, for four MPI ranks total.
+# The full matrix needs six slots. Role placement changes with each case.
 set -eo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -17,11 +17,29 @@ export VLLM_MPI_RUN_ARGS="${VLLM_MPI_RUN_ARGS:---allow-run-as-root --bind-to non
 
 export VLLM_ENGINE_READY_TIMEOUT_S="${VLLM_ENGINE_READY_TIMEOUT_S:-1800}"
 export VLLM_TEST_MAX_WAIT="${VLLM_TEST_MAX_WAIT:-2000}"
-for preset in \
-    Qwen3.6-35B-A3B_dp2_tp2_af_ep_v7 \
-    Qwen3-30B-A3B_dp1_tp2_af_ep_v7 \
-    Qwen3-30B-A3B-FP8_dp1_tp2_af_ep_v7 \
-    Qwen3-30B-A3B-MXFP4A16_dp1_tp2_af_ep_v7; do
-    ./run_vllm_test.sh -e "presets/mpi/moe/${preset}.sh" \
-        --multi-test --multi-test-temperature 0 --test-timeout 300 "$@"
-done
+
+# Real-weight topology coverage.
+env USER_VLLM_EP_SIZE=2 \
+  ./run_vllm_test.sh -e presets/mpi/moe/Qwen3.6-35B-A3B_dp2_tp2_af_ep_v7.sh \
+    --multi-test --multi-test-temperature 0 --test-timeout 300 "$@"
+
+env USER_VLLM_EP_SIZE=4 \
+  ./run_vllm_test.sh -e presets/mpi/moe/Qwen3-30B-A3B-FP8_dp1_tp1_af_ep4_v7.sh \
+    --multi-test --multi-test-temperature 0 --test-timeout 300 "$@"
+
+env USER_VLLM_EP_SIZE=1 \
+  ./run_vllm_test.sh -e presets/mpi/moe/Qwen3.6-35B-A3B_dp2_tp2_af_ep_v7.sh \
+    --multi-test --multi-test-temperature 0 --test-timeout 300 "$@"
+
+# Real-weight precision coverage on the baseline A2/F2 topology.
+env USER_VLLM_EP_SIZE=2 \
+  ./run_vllm_test.sh -e presets/mpi/moe/Qwen3-30B-A3B_dp1_tp2_af_ep_v7.sh \
+    --multi-test --multi-test-temperature 0 --test-timeout 300 "$@"
+
+env USER_VLLM_EP_SIZE=2 \
+  ./run_vllm_test.sh -e presets/mpi/moe/Qwen3-30B-A3B-FP8_dp1_tp2_af_ep_v7.sh \
+    --multi-test --multi-test-temperature 0 --test-timeout 300 "$@"
+
+env USER_VLLM_EP_SIZE=2 \
+  ./run_vllm_test.sh -e presets/mpi/moe/Qwen3-30B-A3B-MXFP4A16_dp1_tp2_af_ep_v7.sh \
+    --multi-test --multi-test-temperature 0 --test-timeout 300 "$@"

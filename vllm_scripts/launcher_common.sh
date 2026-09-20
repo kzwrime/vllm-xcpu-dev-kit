@@ -334,7 +334,7 @@ launcher_prepare_runtime() {
     HEAD_SERVE_LOG="$LOG_DIR/vllm_head_log.txt"
 
     USER_VLLM_MPC_SIZE="${USER_VLLM_MPC_SIZE:-$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE))}"
-    MPI_COUNT=$((USER_VLLM_DATA_PARALLEL_SIZE * USER_VLLM_MPC_SIZE))
+    MPI_COUNT="${USER_VLLM_MPI_SIZE:-$((USER_VLLM_DATA_PARALLEL_SIZE * USER_VLLM_MPC_SIZE))}"
 
     if [[ " ${VLLM_OPTIONAL_ARGS:-} " == *" --language-model-only"* ]] && [[ "${VLLM_XCPU_DISABLE_TORCHVISION:-0}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
         export PYTHONPATH="$SCRIPT_DIR/python_patches${PYTHONPATH:+:$PYTHONPATH}"
@@ -547,8 +547,8 @@ launcher_start_mpi() {
     log_info "MPI 进程数: $MPI_COUNT"
 
     local mpi_run_args_string="${VLLM_MPI_RUN_ARGS:---bind-to none --map-by slot}"
-    local mpi_run_args=() mpi_hosts=() af_env_args=()
-    local host name line mpi_hostfile
+    local mpi_run_args=() mpi_hosts=() mpi_env_args=()
+    local host name line mpi_hostfile mpi_worker_template
     # shellcheck disable=SC2206
     mpi_run_args=($mpi_run_args_string)
     if [ -n "${VLLM_MPI_HOSTFILE:-}" ]; then
@@ -577,10 +577,10 @@ launcher_start_mpi() {
         while IFS= read -r name; do
             case "$name" in
                 PATH|VIRTUAL_ENV|PYTHONPATH|LD_LIBRARY_PATH|LD_PRELOAD|VLLM_*|USER_VLLM_*|RUN_VLLM_*|TORCH_*|OMP_*|MKL_*|OPENBLAS_*|HF_*|MODELSCOPE_*|QWEN3_*|AFD_*|UCX_*)
-                    af_env_args+=(-x "$name") ;;
+                    mpi_env_args+=(-x "$name") ;;
             esac
         done < <(compgen -e)
-        log_info "AFD run: $VLLM_AF_RUN_ID hostfile=${mpi_hostfile:-local} A ranks=0-$((MPI_COUNT - 1)) F ranks=$MPI_COUNT-$((2 * MPI_COUNT - 1))"
+        log_info "AFD run: $VLLM_AF_RUN_ID hostfile=${mpi_hostfile:-local}"
     fi
 
     setsid bash "$SCRIPT_DIR/serve/serve_head_only_template.sh" "${ENV_ARGS[@]}" > "$LAUNCH_LOG" 2>&1 &
@@ -594,17 +594,14 @@ launcher_start_mpi() {
 
     log_info "MPI 额外参数: ${mpi_run_args[*]}"
 
-    if [ "${VLLM_XCPU_ENABLE_AF_EP:-0}" = "1" ]; then
-        log_info "AF-EP MPMD: A ranks=$MPI_COUNT F ranks=$MPI_COUNT"
-        setsid mpirun "${mpi_run_args[@]}" \
-            "${af_env_args[@]}" --wdir "$PWD" \
-            -np "$MPI_COUNT" bash "$SCRIPT_DIR/serve/serve_mp_rpc_all_mpi_template.sh" "${ENV_ARGS[@]}" \
-            : "${af_env_args[@]}" --wdir "$PWD" \
-            -np "$MPI_COUNT" bash "$SCRIPT_DIR/serve/serve_af_moe_template.sh" "${ENV_ARGS[@]}" \
-            >> "$MPI_WORKERS_LOG" 2>&1 &
-    else
-        setsid mpirun "${mpi_run_args[@]}" -np "$MPI_COUNT" bash "$SCRIPT_DIR/serve/serve_mp_rpc_all_mpi_template.sh" "${ENV_ARGS[@]}" >> "$MPI_WORKERS_LOG" 2>&1 &
-    fi
+    mpi_worker_template="${VLLM_MPI_WORKER_TEMPLATE:-$SCRIPT_DIR/serve/serve_mp_rpc_all_mpi_template.sh}"
+    [ -r "$mpi_worker_template" ] || {
+        log_error "Cannot read MPI worker template: $mpi_worker_template"
+        return 1
+    }
+    setsid mpirun "${mpi_run_args[@]}" "${mpi_env_args[@]}" \
+        --wdir "$PWD" -np "$MPI_COUNT" bash "$mpi_worker_template" \
+        "${ENV_ARGS[@]}" >> "$MPI_WORKERS_LOG" 2>&1 &
     local mpi_pid=$!
     record_pid "$mpi_pid"
     log_info "MPI PID: $mpi_pid"

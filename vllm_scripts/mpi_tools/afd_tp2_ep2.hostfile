@@ -1,5 +1,7 @@
-# --map-by slot: A ranks 0/1, then F ranks 2/3.
+# Full matrix capacity: up to six ranks. --map-by slot uses line order.
 node02 slots=1
 node04 slots=1
 node05 slots=1
 node06 slots=1
+node03 slots=1
+node07 slots=1

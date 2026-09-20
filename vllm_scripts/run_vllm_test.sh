@@ -56,6 +56,10 @@ usage() {
 
 环境变量:
   VLLM_MPI_HOSTFILE   MPI hostfile 路径；统一分配 A/F rank，并用于 AFD 远端清理
+  USER_VLLM_EP_SIZE   AFD 的 F/MoE rank 数；可与 Attention rank 数不同
+  USER_VLLM_MPI_SIZE  MPI 总 rank 数；AFD preset 设置为 A ranks + F ranks
+  VLLM_MPI_WORKER_TEMPLATE
+                       MPI rank 入口；AFD preset 使用独立的 rank 分流模板
   USER_VLLM_DATA_PARALLEL_RPC_IP
                        API/head 的 RPC 地址；跨节点时应为可路由地址
   VLLM_TEST_LOG_DIR   本次运行的日志根目录，默认 <vllm_scripts>/logs
