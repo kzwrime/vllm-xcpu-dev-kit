@@ -2,6 +2,14 @@
 # Shared source tree, venv, and checkpoint paths must exist on every host.
 # The full matrix needs six slots. Role placement changes with each case.
 set -eo pipefail
+AFD_MODE=eager
+if [ "${1:-}" = "--mode" ]; then
+    AFD_MODE="${2:-}"
+    case "$AFD_MODE" in
+        eager|compile) shift 2 ;;
+        *) echo "Usage: $0 [--mode eager|compile] [test arguments...]" >&2; exit 2 ;;
+    esac
+fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 VLLM_MPI_HOSTFILE="$(realpath -e "${VLLM_MPI_HOSTFILE:-$SCRIPT_DIR/mpi_tools/afd_tp2_ep2.hostfile}")"
@@ -20,26 +28,26 @@ export VLLM_TEST_MAX_WAIT="${VLLM_TEST_MAX_WAIT:-2000}"
 
 # Real-weight topology coverage.
 env USER_VLLM_EP_SIZE=2 \
-  ./run_vllm_test.sh -e presets/mpi/moe/Qwen3.6-35B-A3B_dp2_tp2_af_ep_v7.sh \
+  ./run_vllm_test.sh -e "presets/mpi/moe/Qwen3.6-35B-A3B_dp2_tp2_af_ep_${AFD_MODE}_v7.sh" \
     --multi-test --multi-test-temperature 0 --test-timeout 300 "$@"
 
 env USER_VLLM_EP_SIZE=4 \
-  ./run_vllm_test.sh -e presets/mpi/moe/Qwen3-30B-A3B-FP8_dp1_tp1_af_ep4_v7.sh \
+  ./run_vllm_test.sh -e "presets/mpi/moe/Qwen3-30B-A3B-FP8_dp1_tp1_af_ep4_${AFD_MODE}_v7.sh" \
     --multi-test --multi-test-temperature 0 --test-timeout 300 "$@"
 
 env USER_VLLM_EP_SIZE=1 \
-  ./run_vllm_test.sh -e presets/mpi/moe/Qwen3.6-35B-A3B_dp2_tp2_af_ep_v7.sh \
+  ./run_vllm_test.sh -e "presets/mpi/moe/Qwen3.6-35B-A3B_dp2_tp2_af_ep_${AFD_MODE}_v7.sh" \
     --multi-test --multi-test-temperature 0 --test-timeout 300 "$@"
 
 # Real-weight precision coverage on the baseline A2/F2 topology.
 env USER_VLLM_EP_SIZE=2 \
-  ./run_vllm_test.sh -e presets/mpi/moe/Qwen3-30B-A3B_dp1_tp2_af_ep_v7.sh \
+  ./run_vllm_test.sh -e "presets/mpi/moe/Qwen3-30B-A3B_dp1_tp2_af_ep_${AFD_MODE}_v7.sh" \
     --multi-test --multi-test-temperature 0 --test-timeout 300 "$@"
 
 env USER_VLLM_EP_SIZE=2 \
-  ./run_vllm_test.sh -e presets/mpi/moe/Qwen3-30B-A3B-FP8_dp1_tp2_af_ep_v7.sh \
+  ./run_vllm_test.sh -e "presets/mpi/moe/Qwen3-30B-A3B-FP8_dp1_tp2_af_ep_${AFD_MODE}_v7.sh" \
     --multi-test --multi-test-temperature 0 --test-timeout 300 "$@"
 
 env USER_VLLM_EP_SIZE=2 \
-  ./run_vllm_test.sh -e presets/mpi/moe/Qwen3-30B-A3B-MXFP4A16_dp1_tp2_af_ep_v7.sh \
+  ./run_vllm_test.sh -e "presets/mpi/moe/Qwen3-30B-A3B-MXFP4A16_dp1_tp2_af_ep_${AFD_MODE}_v7.sh" \
     --multi-test --multi-test-temperature 0 --test-timeout 300 "$@"

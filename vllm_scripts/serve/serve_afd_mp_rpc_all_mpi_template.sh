@@ -45,11 +45,17 @@ if [ "$RANK" -ge "$ATTENTION_RANK_COUNT" ]; then
     echo "AFD placement role=F host=$(hostname) global_rank=$RANK role_rank=$MOE_RANK"
     source "$SCRIPT_DIR/serve/af_model_load_args.sh"
     af_model_load_args
+    AF_EXECUTION_ARGS=()
+    case "${USER_VLLM_AFD_F_COMPILE:-0}" in
+        0) ;;
+        1) AF_EXECUTION_ARGS+=(--compile) ;;
+        *) echo "USER_VLLM_AFD_F_COMPILE must be 0 or 1" >&2; exit 1 ;;
+    esac
     exec python -m vllm_xcpu_plugin.af_ep.moe \
         --model "$USER_VLLM_MODEL" \
         --max-num-batched-tokens "$USER_VLLM_MAX_NUM_BATCHED_TOKENS" \
         --load-format "${USER_VLLM_LOAD_FORMAT:-auto}" \
-        "${AF_MODEL_LOAD_ARGS[@]}"
+        "${AF_MODEL_LOAD_ARGS[@]}" "${AF_EXECUTION_ARGS[@]}"
 fi
 
 echo "AFD placement role=A host=$(hostname) global_rank=$RANK role_rank=$RANK"

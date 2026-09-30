@@ -33,6 +33,21 @@ AFD 将 Attention 与 routed experts 放到不同进程：
 
 下面的矩阵脚本会为每种拓扑或精度分别启动一次服务、执行测试并清理，再测试下一项。通过表示这条配置下端到端功能可用；此处不测吞吐性能，也不进行模型精度评分。
 
+AFD 为各模型/拓扑分别提供 `*_eager_v7.sh` 和 `*_compile_v7.sh`，文件内固定 A/F 执行模式。compile 文件中，A 侧使用与普通 V6 MoE 相同的 `DYNAMO_TRACE_ONCE + Inductor` 路径，F 侧用 Inductor 编译每层 receive → compute → send。完整实现与验证范围见 [A/F compile 适配](compile.md)。MPI world、A/F 拓扑和 V7 通信协议保持相同。当前不支持 CUDAGraph capture。
+
+```bash
+# 对整个拓扑/精度矩阵选择 compile preset。
+./vllm_scripts/e2e/run_afd_crossnode_matrix.sh --mode compile
+
+# 单独测试 BF16 A2/F2 compile；eager 则选择同名 eager 文件。
+cd vllm_scripts
+./run_vllm_test.sh \
+  -e presets/mpi/moe/Qwen3-30B-A3B_dp1_tp2_af_ep_compile_v7.sh \
+  --multi-test --multi-test-temperature 0 --test-timeout 300
+```
+
+修改编译相关代码后，使用独立的 compile cache 或提前重命名原缓存目录再测试。`TORCH_XCPU_ENABLE_CHECK=1` 可用于 compile 功能验证；V7 tracing 检查只读取 tensor 形状、类型和设备，metadata 内容由加载后的传输初始化及 native runtime 校验。
+
 ## 0. Rank 拓扑合同
 
 启动参数满足：
@@ -90,7 +105,7 @@ export VLLM_TEST_LOG_DIR="$PWD/vllm_scripts/logs/afd_e2e_$(date +%Y%m%d_%H%M%S)"
 
 AFD preset 还必须设置如下配置
 
-注：仓库内现有 `*_af_ep_v7.sh` preset 已包含这些设置，`USER_VLLM_EP_SIZE` 可在启动前覆盖。默认 `mpi_tools/afd_tp2_ep2.hostfile` 已扩展为 6 个 slot；修改其中的主机名后，整个矩阵复用这一个 hostfile。
+注：仓库内的 AFD eager / compile preset 均已包含这些设置，`USER_VLLM_EP_SIZE` 可在启动前覆盖。默认 `mpi_tools/afd_tp2_ep2.hostfile` 已扩展为 6 个 slot；修改其中的主机名后，整个矩阵复用这一个 hostfile。
 
 ```bash
 export USER_VLLM_EP_SIZE=2
@@ -108,16 +123,16 @@ export VLLM_MPI_WORKER_TEMPLATE="$PWD/vllm_scripts/serve/serve_afd_mp_rpc_all_mp
 
 ### 2.1 统一拓扑与精度矩阵
 
-脚本按顺序覆盖多 DP、非对称 A/F 和三种真实权重精度，所有 case 都包含并发请求：
+脚本按顺序覆盖多 DP、非对称 A/F 和三种真实权重精度，所有 case 都包含并发请求。默认选择下面的 eager 文件；`--mode compile` 选择对应的 compile 文件：
 
 | 顺序 | 拓扑 | preset |
 |---:|---|---|
-| 1 | A4/F2，DP2-TP2-EP2 | `Qwen3.6-35B-A3B_dp2_tp2_af_ep_v7.sh` |
-| 2 | A1/F4，DP1-TP1-EP4 | `Qwen3-30B-A3B-FP8_dp1_tp1_af_ep4_v7.sh` |
-| 3 | A4/F1，DP2-TP2-EP1 | `Qwen3.6-35B-A3B_dp2_tp2_af_ep_v7.sh`，覆盖 `EP=1` |
-| 4 | A2/F2，DP1-TP2-EP2 | `Qwen3-30B-A3B_dp1_tp2_af_ep_v7.sh` |
-| 5 | A2/F2，DP1-TP2-EP2 | `Qwen3-30B-A3B-FP8_dp1_tp2_af_ep_v7.sh` |
-| 6 | A2/F2，DP1-TP2-EP2 | `Qwen3-30B-A3B-MXFP4A16_dp1_tp2_af_ep_v7` |
+| 1 | A4/F2，DP2-TP2-EP2 | `Qwen3.6-35B-A3B_dp2_tp2_af_ep_eager_v7.sh` |
+| 2 | A1/F4，DP1-TP1-EP4 | `Qwen3-30B-A3B-FP8_dp1_tp1_af_ep4_eager_v7.sh` |
+| 3 | A4/F1，DP2-TP2-EP1 | `Qwen3.6-35B-A3B_dp2_tp2_af_ep_eager_v7.sh`，覆盖 `EP=1` |
+| 4 | A2/F2，DP1-TP2-EP2 | `Qwen3-30B-A3B_dp1_tp2_af_ep_eager_v7.sh` |
+| 5 | A2/F2，DP1-TP2-EP2 | `Qwen3-30B-A3B-FP8_dp1_tp2_af_ep_eager_v7.sh` |
+| 6 | A2/F2，DP1-TP2-EP2 | `Qwen3-30B-A3B-MXFP4A16_dp1_tp2_af_ep_eager_v7.sh` |
 
 ```bash
 ./vllm_scripts/e2e/run_afd_crossnode_matrix.sh
@@ -131,6 +146,14 @@ export VLLM_MPI_WORKER_TEMPLATE="$PWD/vllm_scripts/serve/serve_afd_mp_rpc_all_mp
 
 ```bash
 set -eo pipefail
+AFD_MODE=eager
+if [ "${1:-}" = "--mode" ]; then
+    AFD_MODE="${2:-}"
+    case "$AFD_MODE" in
+        eager|compile) shift 2 ;;
+        *) echo "Usage: $0 [--mode eager|compile] [test arguments...]" >&2; exit 2 ;;
+    esac
+fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 VLLM_MPI_HOSTFILE="$(realpath -e "${VLLM_MPI_HOSTFILE:-$SCRIPT_DIR/mpi_tools/afd_tp2_ep2.hostfile}")"
@@ -149,28 +172,28 @@ export VLLM_TEST_MAX_WAIT="${VLLM_TEST_MAX_WAIT:-2000}"
 
 # Real-weight topology coverage.
 env USER_VLLM_EP_SIZE=2 \
-  ./run_vllm_test.sh -e presets/mpi/moe/Qwen3.6-35B-A3B_dp2_tp2_af_ep_v7.sh \
+  ./run_vllm_test.sh -e "presets/mpi/moe/Qwen3.6-35B-A3B_dp2_tp2_af_ep_${AFD_MODE}_v7.sh" \
     --multi-test --multi-test-temperature 0 --test-timeout 300 "$@"
 
 env USER_VLLM_EP_SIZE=4 \
-  ./run_vllm_test.sh -e presets/mpi/moe/Qwen3-30B-A3B-FP8_dp1_tp1_af_ep4_v7.sh \
+  ./run_vllm_test.sh -e "presets/mpi/moe/Qwen3-30B-A3B-FP8_dp1_tp1_af_ep4_${AFD_MODE}_v7.sh" \
     --multi-test --multi-test-temperature 0 --test-timeout 300 "$@"
 
 env USER_VLLM_EP_SIZE=1 \
-  ./run_vllm_test.sh -e presets/mpi/moe/Qwen3.6-35B-A3B_dp2_tp2_af_ep_v7.sh \
+  ./run_vllm_test.sh -e "presets/mpi/moe/Qwen3.6-35B-A3B_dp2_tp2_af_ep_${AFD_MODE}_v7.sh" \
     --multi-test --multi-test-temperature 0 --test-timeout 300 "$@"
 
 # Real-weight precision coverage on the baseline A2/F2 topology.
 env USER_VLLM_EP_SIZE=2 \
-  ./run_vllm_test.sh -e presets/mpi/moe/Qwen3-30B-A3B_dp1_tp2_af_ep_v7.sh \
+  ./run_vllm_test.sh -e "presets/mpi/moe/Qwen3-30B-A3B_dp1_tp2_af_ep_${AFD_MODE}_v7.sh" \
     --multi-test --multi-test-temperature 0 --test-timeout 300 "$@"
 
 env USER_VLLM_EP_SIZE=2 \
-  ./run_vllm_test.sh -e presets/mpi/moe/Qwen3-30B-A3B-FP8_dp1_tp2_af_ep_v7.sh \
+  ./run_vllm_test.sh -e "presets/mpi/moe/Qwen3-30B-A3B-FP8_dp1_tp2_af_ep_${AFD_MODE}_v7.sh" \
     --multi-test --multi-test-temperature 0 --test-timeout 300 "$@"
 
 env USER_VLLM_EP_SIZE=2 \
-  ./run_vllm_test.sh -e presets/mpi/moe/Qwen3-30B-A3B-MXFP4A16_dp1_tp2_af_ep_v7.sh \
+  ./run_vllm_test.sh -e "presets/mpi/moe/Qwen3-30B-A3B-MXFP4A16_dp1_tp2_af_ep_${AFD_MODE}_v7.sh" \
     --multi-test --multi-test-temperature 0 --test-timeout 300 "$@"
 ```
 
@@ -196,7 +219,7 @@ env USER_VLLM_EP_SIZE=2 \
 
 单独重测时，复制脚本中对应的 `env USER_VLLM_EP_SIZE=... ./run_vllm_test.sh ...` 命令即可。
 
-BF16 和 MXFP4A16 的 preset 分别为 `Qwen3-30B-A3B_dp1_tp2_af_ep_v7.sh`、`Qwen3-30B-A3B-MXFP4A16_dp1_tp2_af_ep_v7.sh`。
+BF16 和 MXFP4A16 的 preset 分别为 `Qwen3-30B-A3B_dp1_tp2_af_ep_eager_v7.sh`、`Qwen3-30B-A3B-MXFP4A16_dp1_tp2_af_ep_eager_v7.sh`。
 
 ### 2.2 独立启动与作业管理系统适配
 
@@ -214,7 +237,7 @@ BF16 和 MXFP4A16 的 preset 分别为 `Qwen3-30B-A3B_dp1_tp2_af_ep_v7.sh`、`Qw
 
 ```bash
 cd /absolute/path/to/vllm-xcpu-dev-kit/vllm_scripts
-PRESET="$PWD/presets/mpi/moe/Qwen3.6-35B-A3B_dp2_tp2_af_ep_v7.sh"
+PRESET="$PWD/presets/mpi/moe/Qwen3.6-35B-A3B_dp2_tp2_af_ep_eager_v7.sh"
 export VLLM_RUN_LOG_DIR="$PWD/logs/afd_manual_dp2_tp2_ep2"
 # 同一次运行的 head 与 ranks 填写相同且唯一的值。
 export VLLM_AF_RUN_ID="afd_manual_20260920_01"
@@ -227,7 +250,7 @@ bash ./serve/serve_head_only_template.sh -e "$PRESET"
 
 ```bash
 cd /absolute/path/to/vllm-xcpu-dev-kit/vllm_scripts
-PRESET="$PWD/presets/mpi/moe/Qwen3.6-35B-A3B_dp2_tp2_af_ep_v7.sh"
+PRESET="$PWD/presets/mpi/moe/Qwen3.6-35B-A3B_dp2_tp2_af_ep_eager_v7.sh"
 export VLLM_RUN_LOG_DIR="$PWD/logs/afd_manual_dp2_tp2_ep2"
 export VLLM_AF_RUN_ID="afd_manual_20260920_01"
 
@@ -240,7 +263,7 @@ mpirun --bind-to none --map-by slot -np 6 \
 
 ```bash
 cd /absolute/path/to/vllm-xcpu-dev-kit/vllm_scripts
-PRESET="$PWD/presets/mpi/moe/Qwen3.6-35B-A3B_dp2_tp2_af_ep_v7.sh"
+PRESET="$PWD/presets/mpi/moe/Qwen3.6-35B-A3B_dp2_tp2_af_ep_eager_v7.sh"
 bash ./serve_test/serve_test_template.sh -e "$PRESET"
 ```
 

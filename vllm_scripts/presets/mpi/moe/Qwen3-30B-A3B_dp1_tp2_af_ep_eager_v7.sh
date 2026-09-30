@@ -2,11 +2,12 @@
 SCRIPT_DIR="$(realpath "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="${SCRIPT_DIR%/presets/*}"
 
-export PD_MODE="MIXED"
+export PD_MODE=MIXED
 source "$SCRIPT_DIR/user_env_template.sh"
 
 export USER_VLLM_EAGER_OR_NOT="--enforce-eager"
-export USER_VLLM_MODEL="${QWEN3_30B_A3B_MXFP4_MODEL_PATH:-nm-testing/Qwen3-30B-A3B-MXFP4A16}"
+export USER_VLLM_AFD_F_COMPILE=0
+export USER_VLLM_MODEL="${QWEN3_30B_A3B_BF16_MODEL_PATH:-Qwen/Qwen3-30B-A3B-Instruct-2507}"
 export USER_VLLM_DATA_PARALLEL_SIZE=1
 export USER_VLLM_TP_SIZE=2
 export USER_VLLM_PP_SIZE=1
@@ -23,4 +24,4 @@ _VLLM_OPTIONAL_ARGS+=" --all2all-backend mpi_alltoallv_v7"
 export VLLM_OPTIONAL_ARGS="${_VLLM_OPTIONAL_ARGS}"
 
 preset_name=$(basename "${BASH_SOURCE[0]}" .sh)
-echo "AF-EP preset: ${preset_name} A=2 F=${USER_VLLM_EP_SIZE} ModelRunner=V2 eager MXFP4A16"
+echo "AF-EP preset: ${preset_name} A=2 F=${USER_VLLM_EP_SIZE} ModelRunner=V2 A=eager F=eager BF16"
