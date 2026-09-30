@@ -39,7 +39,7 @@ vllm_scripts/presets/serial/Qwen3.5-0.8B_dp1_tp1_eager.sh
 ./run_vllm_test.sh -e presets/serial/dflash/Qwen3.5-4B_dp1_tp1_eager_dflash_4.sh --multi-test
 ```
 
-日志一般在 ./vllm_scripts/logs
+日志一般在 ./vllm_scripts/logs/runs
 
 Compile 产物一般在 ./vllm_scripts/vllm_cache。涉及 compile 相关的调试时，建议提前删除/重命名该目录，否则可能存在不便定位或缓存污染的问题。
 
