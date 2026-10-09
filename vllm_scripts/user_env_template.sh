@@ -183,7 +183,7 @@ if [[ "$TORCHINDUCTOR_MEMORY_PLANNING" == "1" ]]; then
 else
     export AOTI_TORCH_ALWAYS_REUSE="${AOTI_TORCH_ALWAYS_REUSE:-1}"
 fi
-export TORCHINDUCTOR_DIRECT_DISPATCH_PREFIXES="torch_xcpu,torch_mpi_ext.all_reduce__wrapper"
+export TORCHINDUCTOR_DIRECT_DISPATCH_PREFIXES="torch_xcpu,torch_mpi_ext"
 
 _USER_ENV_TEMPLATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _TORCH_XCPU_AOTI_ENV="$(
