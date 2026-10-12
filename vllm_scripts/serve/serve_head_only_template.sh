@@ -76,6 +76,7 @@ VLLM_LOGGING_LEVEL=${USER_VLLM_LOGGING_LEVEL} vllm serve ${USER_VLLM_MODEL} \
   --max-num-batched-tokens ${USER_VLLM_MAX_NUM_BATCHED_TOKENS} \
   -tp=${USER_VLLM_TP_SIZE} \
   -pp=${USER_VLLM_PP_SIZE} \
+  --prefill-context-parallel-size "${USER_VLLM_PCP_SIZE}" \
   --distributed-executor-backend mp \
   --port ${USER_VLLM_PORT} \
   ${USER_VLLM_EAGER_OR_NOT} \

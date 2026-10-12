@@ -6,6 +6,7 @@ export USER_VLLM_MAX_NUM_SEQS="${USER_VLLM_MAX_NUM_SEQS:-16}"
 export USER_VLLM_DATA_PARALLEL_SIZE=2
 export USER_VLLM_TP_SIZE=2
 export USER_VLLM_PP_SIZE=1
+export USER_VLLM_PCP_SIZE="${USER_VLLM_PCP_SIZE:-1}"
 export USER_VLLM_DATA_PARALLEL_ADDRESS="127.0.0.1"  # DP-Rank0 Executor IP
 export USER_VLLM_DATA_PARALLEL_RPC_IP="${USER_VLLM_DATA_PARALLEL_RPC_IP:-127.0.0.1}"   # HEAD IP (API Server in headless mode)
 export VLLM_DP_MASTER_WORKER_IP="127.0.0.1"         # DP-Rank0 Worker0 IP
@@ -32,7 +33,7 @@ export VLLM_LOOPBACK_IP=$(hostname -I | awk '{print $1}')
 export VLLM_USE_XCPU_LINEAR=1
 # export TORCH_XCPU_ENABLE_CHECK=0
 # export VLLM_CPU_MOCK_LINEAR=1
-export VLLM_CPU_USE_MPI=0
+export VLLM_CPU_USE_MPI="${VLLM_CPU_USE_MPI:-0}"
 export TORCHINDUCTOR_CPP_WRAPPER=1
 # 默认关闭，保持 Inductor pointwise C++ fusion 性能。
 # 设为 1 时，mcpu Inductor 将 pointwise fallback 成 aoti_torch_mcpu_* wrapper，

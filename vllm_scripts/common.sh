@@ -90,6 +90,35 @@ load_user_config() {
     fi
 }
 
+configure_parallel_sizes() {
+    export USER_VLLM_TP_SIZE="${RUN_VLLM_EFFECTIVE_TP_SIZE:-$USER_VLLM_TP_SIZE}"
+    if [ -n "${RUN_VLLM_EFFECTIVE_EXPERT_PARALLEL:-}" ]; then
+        if ! [[ "$RUN_VLLM_EFFECTIVE_EXPERT_PARALLEL" =~ ^[01]$ ]]; then
+            echo "Invalid RUN_VLLM_EFFECTIVE_EXPERT_PARALLEL: expected 0 or 1" >&2
+            return 1
+        fi
+        VLLM_OPTIONAL_ARGS="${VLLM_OPTIONAL_ARGS//--enable-expert-parallel/}"
+        if [ "$RUN_VLLM_EFFECTIVE_EXPERT_PARALLEL" = 1 ]; then
+            VLLM_OPTIONAL_ARGS="${VLLM_OPTIONAL_ARGS//--all2all-backend all_to_all_single/}"
+            VLLM_OPTIONAL_ARGS+=" --enable-expert-parallel --all2all-backend torch_all_to_all_single"
+        fi
+        export VLLM_OPTIONAL_ARGS
+    fi
+    export USER_VLLM_PCP_SIZE="${USER_VLLM_PCP_SIZE:-1}"
+    local name
+    for name in USER_VLLM_DATA_PARALLEL_SIZE USER_VLLM_TP_SIZE USER_VLLM_PP_SIZE USER_VLLM_PCP_SIZE; do
+        if ! [[ "${!name}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Invalid $name: expected a positive integer, got '${!name}'" >&2
+            return 1
+        fi
+    done
+    if ! [[ "${VLLM_CPU_USE_MPI:-0}" =~ ^[01]$ ]]; then
+        echo "Invalid VLLM_CPU_USE_MPI: expected 0 or 1" >&2
+        return 1
+    fi
+    export USER_VLLM_MPC_SIZE=$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE * USER_VLLM_PCP_SIZE))
+}
+
 apply_runtime_overrides() {
     if [ -n "${RUN_VLLM_EFFECTIVE_PORT:-}" ]; then
         export USER_VLLM_PORT="$RUN_VLLM_EFFECTIVE_PORT"
@@ -148,5 +177,6 @@ parse_args_and_load_env() {
         load_user_config "$vllm_scripts_dir"
     fi
 
+    configure_parallel_sizes || exit 1
     apply_runtime_overrides
 }
