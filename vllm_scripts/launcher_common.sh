@@ -567,13 +567,15 @@ launcher_start_mpi() {
         mpi_run_args+=(--hostfile "$mpi_hostfile")
     fi
 
-    export VLLM_AF_RUN_ID="afd_$(date +%Y%m%d_%H%M%S)_$$_${RANDOM}"
-    AF_CLEANUP_HOSTS=("$(hostname)")
-    for host in "${mpi_hosts[@]}"; do
-        if [[ " ${AF_CLEANUP_HOSTS[*]} " != *" $host "* ]]; then
-            AF_CLEANUP_HOSTS+=("$host")
-        fi
-    done
+    if [ "${VLLM_XCPU_ENABLE_AF_EP:-0}" = 1 ]; then
+        export VLLM_AF_RUN_ID="afd_$(date +%Y%m%d_%H%M%S)_$$_${RANDOM}"
+        AF_CLEANUP_HOSTS=("$(hostname)")
+        for host in "${mpi_hosts[@]}"; do
+            if [[ " ${AF_CLEANUP_HOSTS[*]} " != *" $host "* ]]; then
+                AF_CLEANUP_HOSTS+=("$host")
+            fi
+        done
+    fi
     if [ "${VLLM_XCPU_ENABLE_AF_EP:-0}" = 1 ] || [ -n "${VLLM_MPI_HOSTFILE:-}" ]; then
         # Open MPI does not forward arbitrary environment variables over SSH.
         while IFS= read -r name; do

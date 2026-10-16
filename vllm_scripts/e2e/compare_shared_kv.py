@@ -28,13 +28,10 @@ def compare(private_path, shared_path):
         a, b = before["cache"], after["cache"]
         assert not a["shared"] and b["shared"]
         assert a["runner"] == b["runner"] == "McpuModelRunnerV2"
-        assert (a["tp"], a["dp"], a["ep"], a["blocks"]) == (
-            b["tp"],
-            b["dp"],
-            b["ep"],
-            b["blocks"],
+        assert all(
+            a[k] == b[k] for k in ("tp", "dp", "ep", "pcp", "pcp_rank", "blocks")
         )
-        pool = (b["device"], b["inode"])
+        pool = (b["host"], b["device"], b["inode"])
         pools.setdefault(pool, []).append(after)
         private_bytes += a["bytes"]
         shared_bytes += b["bytes"] - b["shared_bytes"]
@@ -42,16 +39,19 @@ def compare(private_path, shared_path):
         reports = [r["cache"] for r in ranks]
         assert len(ranks) == reports[0]["tp"]
         assert len({r["dp"] for r in ranks}) == 1
+        assert len({r["pcp_rank"] for r in reports}) == 1
         assert sum(r["writer"] for r in reports) == 1
         assert all(r["cache_sha256"] == reports[0]["cache_sha256"] for r in reports)
         shared_bytes += reports[0]["shared_bytes"]
-    return dict(
-        private_bytes=private_bytes,
-        shared_bytes=shared_bytes,
-        pools=len(pools),
-        ranks=len(private),
-        exact_output_match=True,
-    )
+    if shared[0]["cache"]["tp"] > 1:
+        assert shared_bytes < private_bytes, "sharing did not reduce physical storage"
+    return {
+        "private_bytes": private_bytes,
+        "shared_bytes": shared_bytes,
+        "pools": len(pools),
+        "ranks": len(private),
+        "exact_output_match": True,
+    }
 
 
 if __name__ == "__main__":

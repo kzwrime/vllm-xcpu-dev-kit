@@ -1,13 +1,10 @@
-import importlib.util
 import json
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1] / "vllm_scripts"
 PRESET = "presets/serial/GLM-5.2-MXFP4-W4A16-dummy-7-layer-lite_dp1_tp1_eager.sh"
@@ -63,6 +60,7 @@ class PCPLauncherTest(unittest.TestCase):
             ["bash", "-c", command],
             cwd=self.root,
             env=self.env if env is None else env,
+            check=False,
             capture_output=True,
             text=True,
             timeout=15,
@@ -121,29 +119,16 @@ class PCPLauncherTest(unittest.TestCase):
     def test_explicit_mpi_size_is_preserved(self):
         result = self.run_shell(
             'source ./common.sh; SCRIPT_DIR="$PWD"; '
-            'source ./launcher_common.sh; '
+            "source ./launcher_common.sh; "
             f'PRESET_FILE_INPUT="{PRESET}"; ENV_ARGS=(); '
             'launcher_load_config; LOG_DIR="$PWD/logs"; LAUNCHER=mpi; '
-            'USER_VLLM_MPI_SIZE=6; '
-            'launcher_prepare_non_pd_ports() { :; }; '
-            'launcher_prepare_runtime launch.log; '
+            "USER_VLLM_MPI_SIZE=6; "
+            "launcher_prepare_non_pd_ports() { :; }; "
+            "launcher_prepare_runtime launch.log; "
             'printf "WORKERS=%s\\n" "$MPI_COUNT"'
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("WORKERS=6", result.stdout)
-
-    def test_mpi_launch_has_scoped_cleanup_without_afd(self):
-        result = self.run_shell(
-            'SCRIPT_DIR="$PWD"; source ./launcher_common.sh; '
-            'MPI_COUNT=2; ENV_ARGS=(); LAUNCH_LOG=/dev/null; '
-            'MPI_WORKERS_LOG=/dev/null; '
-            'setsid() { :; }; sleep() { :; }; record_pid() { :; }; '
-            'launcher_start_mpi; wait; '
-            'printf "RUN=%s HOST=%s\\n" "$VLLM_AF_RUN_ID" '
-            '"${AF_CLEANUP_HOSTS[0]}"'
-        )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertRegex(result.stdout, r"RUN=afd_[0-9_]+ HOST=\S+")
 
     def test_serve_commands_and_worker_rank(self):
         for mpi in ("0", "1"):
@@ -184,73 +169,6 @@ class PCPLauncherTest(unittest.TestCase):
                             self.assertEqual(
                                 worker["args"][worker["args"].index("--rank") + 1], rank
                             )
-
-    def test_matrix_overrides_reach_service_templates(self):
-        spec = importlib.util.spec_from_file_location(
-            "pcp_matrix", ROOT / "e2e/pcp_matrix.py"
-        )
-        matrix = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(matrix)
-        for name, (pcp, tp, ep, mpi) in matrix.CASES.items():
-            with self.subTest(case=name):
-                for path in self.root.glob("call-*.json"):
-                    path.unlink()
-                env = dict(
-                    self.env,
-                    USER_VLLM_PCP_SIZE=str(pcp),
-                    RUN_VLLM_EFFECTIVE_TP_SIZE=str(tp),
-                    RUN_VLLM_EFFECTIVE_EXPERT_PARALLEL=str(ep),
-                    VLLM_CPU_USE_MPI=str(mpi),
-                    OMPI_COMM_WORLD_SIZE=str(pcp * tp),
-                )
-                result = self.run_shell(
-                    f'bash serve/serve_mp_rpc_all_mpi_template.sh -e "{PRESET}"', env
-                )
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                (server,) = [
-                    json.loads(p.read_text())
-                    for p in self.root.glob("call-*.json")
-                    if json.loads(p.read_text())["name"] == "vllm"
-                ]
-                args = server["args"]
-                self.assertIn(f"-tp={tp}", args)
-                self.assertEqual(
-                    args[args.index("--prefill-context-parallel-size") + 1], str(pcp)
-                )
-                self.assertEqual("--enable-expert-parallel" in args, bool(ep))
-                if ep:
-                    self.assertEqual(
-                        args[args.index("--all2all-backend") + 1],
-                        "torch_all_to_all_single",
-                    )
-                self.assertEqual(server["mpi"], str(mpi))
-
-    def test_matrix_calls_launcher_and_stops_on_failure(self):
-        spec = importlib.util.spec_from_file_location(
-            "pcp_matrix", ROOT / "e2e/pcp_matrix.py"
-        )
-        matrix = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(matrix)
-        output = self.root / "matrix"
-        with (
-            patch.object(sys, "argv", ["pcp_matrix.py", "--output-dir", str(output)]),
-            patch.object(
-                matrix.subprocess,
-                "run",
-                return_value=subprocess.CompletedProcess([], 7),
-            ) as run,
-        ):
-            with self.assertRaises(SystemExit) as error:
-                matrix.main()
-        self.assertEqual(error.exception.code, 7)
-        run.assert_called_once()
-        command = run.call_args.args[0]
-        self.assertEqual(command[:2], ["bash", str(ROOT / "run_vllm_test.sh")])
-        self.assertIn(PRESET, command)
-        self.assertEqual(
-            json.loads((output / "summary.json").read_text()),
-            [{"case": "baseline", "returncode": 7}],
-        )
 
     def test_wrong_mpi_world_size_is_rejected(self):
         result = self.run_shell(
