@@ -290,6 +290,7 @@ launcher_load_config() {
     fi
 
     SCRIPT_DIR="$launcher_script_dir"
+    configure_parallel_sizes || exit 1
 
     # Keep vLLM's own engine-startup timeout aligned with the outer service
     # wait when callers only configure VLLM_TEST_MAX_WAIT.  Otherwise a cold
@@ -319,6 +320,7 @@ launcher_check_required_env() {
     check_and_print_env "USER_VLLM_DATA_PARALLEL_SIZE"
     check_and_print_env "USER_VLLM_TP_SIZE"
     check_and_print_env "USER_VLLM_PP_SIZE"
+    check_and_print_env "USER_VLLM_PCP_SIZE"
 }
 
 launcher_prepare_runtime() {
@@ -573,6 +575,8 @@ launcher_start_mpi() {
                 AF_CLEANUP_HOSTS+=("$host")
             fi
         done
+    fi
+    if [ "${VLLM_XCPU_ENABLE_AF_EP:-0}" = 1 ] || [ -n "${VLLM_MPI_HOSTFILE:-}" ]; then
         # Open MPI does not forward arbitrary environment variables over SSH.
         while IFS= read -r name; do
             case "$name" in
