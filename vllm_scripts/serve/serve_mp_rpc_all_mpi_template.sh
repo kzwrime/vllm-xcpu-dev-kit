@@ -73,10 +73,8 @@ check_and_print_env "USER_VLLM_PORT"
 check_and_print_env "VLLM_LOOPBACK_IP"
 check_and_print_env "VLLM_OPTIONAL_ARGS"
 
-# TODO 检查 PP_SIZE * TP_SIZE = USER_VLLM_MPC_SIZE
-
-if (( USER_VLLM_PP_SIZE * USER_VLLM_TP_SIZE != USER_VLLM_MPC_SIZE )); then
-    echo "USER_VLLM_PP_SIZE($USER_VLLM_PP_SIZE) * USER_VLLM_TP_SIZE($USER_VLLM_TP_SIZE) != USER_VLLM_MPC_SIZE($USER_VLLM_MPC_SIZE)"
+if (( SIZE != USER_VLLM_DATA_PARALLEL_SIZE * USER_VLLM_MPC_SIZE )); then
+    echo "MPI size $SIZE does not match DP * TP * PP * PCP" >&2
     exit 1
 fi
 
@@ -106,6 +104,7 @@ if [ $MPC_RANK -eq 0 ]; then
           --max-num-batched-tokens ${USER_VLLM_MAX_NUM_BATCHED_TOKENS} \
           -tp=${USER_VLLM_TP_SIZE} \
           -pp=${USER_VLLM_PP_SIZE} \
+          --prefill-context-parallel-size "${USER_VLLM_PCP_SIZE}" \
           --distributed-executor-backend mp \
           --data-parallel-size ${USER_VLLM_DATA_PARALLEL_SIZE} \
           --data-parallel-size-local 1 \
