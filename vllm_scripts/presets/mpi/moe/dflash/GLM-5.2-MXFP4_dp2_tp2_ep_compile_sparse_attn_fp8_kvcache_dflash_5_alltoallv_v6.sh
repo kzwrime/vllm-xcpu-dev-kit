@@ -7,6 +7,8 @@ SCRIPT_DIR="${SCRIPT_DIR%/presets/*}"
 
 # MIXED enables expert parallelism through user_env_template.sh.
 export PD_MODE="MIXED"
+# v0.31 auto-selects breakable CUDA graphs for DSA, which disables compile.
+export VLLM_USE_BREAKABLE_CUDAGRAPH=0
 export USER_VLLM_MAX_NUM_BATCHED_TOKENS="${USER_VLLM_MAX_NUM_BATCHED_TOKENS:-2048}"
 export VLLM_TEST_MAX_WAIT="${VLLM_TEST_MAX_WAIT:-1800}"
 export VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS="${VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS:-3600}"

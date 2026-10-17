@@ -1,17 +1,19 @@
 #!/bin/bash
 
-# Real-weight GLM5.2 end-to-end accuracy preset.  The single-request accuracy
-# client batches contexts on opposite sides of index_topk=2048 into one model
-# call while sharing this single model load.
+# Real-weight GLM5.2 serial preset with FP8 KV cache.
+# Smoke evaluation: serve_test/test_glm52_serial.py against the running server.
 
 SCRIPT_DIR="$(realpath "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="${SCRIPT_DIR%/presets/*}"
 
 export PD_MODE="NOT_MOE"
+# v0.31 auto-selects breakable CUDA graphs for DSA, which disables compile.
+export VLLM_USE_BREAKABLE_CUDAGRAPH=0
 export USER_VLLM_MAX_NUM_BATCHED_TOKENS="${USER_VLLM_MAX_NUM_BATCHED_TOKENS:-2048}"
 export VLLM_TEST_MAX_WAIT="${VLLM_TEST_MAX_WAIT:-1800}"
 export VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS="${VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS:-3600}"
 source "$SCRIPT_DIR/user_env_template.sh"
+unset USER_VLLM_MP_RPC_WORKER_PER_NODE
 
 # The published AMD checkpoint declares dynamic MXFP4 activations (W4A4).
 # XCPU currently consumes the same packed weights with BF16 activations (W4A16).

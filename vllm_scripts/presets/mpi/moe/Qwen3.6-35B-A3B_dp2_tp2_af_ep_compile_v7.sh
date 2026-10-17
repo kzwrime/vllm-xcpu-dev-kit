@@ -8,6 +8,8 @@ source "$SCRIPT_DIR/user_env_template.sh"
 
 export USER_VLLM_EAGER_OR_NOT=""
 export USER_VLLM_AFD_F_COMPILE=1
+# torch_xcpu Python-side checks (storage_offset etc.) break Dynamo fullgraph tracing.
+export TORCH_XCPU_ENABLE_CHECK=0
 export USER_VLLM_MODEL="${QWEN3_6_35B_A3B_BF16_MODEL_PATH:-Qwen/Qwen3.6-35B-A3B}"
 export USER_VLLM_DATA_PARALLEL_SIZE=2
 export USER_VLLM_TP_SIZE=2
