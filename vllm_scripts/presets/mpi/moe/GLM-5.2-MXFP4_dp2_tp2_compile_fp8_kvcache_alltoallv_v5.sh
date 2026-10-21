@@ -11,6 +11,8 @@ export PD_MODE="MIXED"
 export USER_VLLM_MAX_NUM_BATCHED_TOKENS="${USER_VLLM_MAX_NUM_BATCHED_TOKENS:-2048}"
 export VLLM_TEST_MAX_WAIT="${VLLM_TEST_MAX_WAIT:-1800}"
 export VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS="${VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS:-3600}"
+# v0.31 auto-selects breakable CUDA graphs for DSA, which disables compile.
+export VLLM_USE_BREAKABLE_CUDAGRAPH=0
 source "$SCRIPT_DIR/user_env_template.sh"
 
 # The published AMD checkpoint declares dynamic MXFP4 activations (W4A4).
