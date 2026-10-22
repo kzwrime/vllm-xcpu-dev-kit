@@ -37,13 +37,14 @@ def compare(private_path, shared_path):
         shared_bytes += b["bytes"] - b["shared_bytes"]
     for ranks in pools.values():
         reports = [r["cache"] for r in ranks]
-        assert len(ranks) == reports[0]["tp"]
+        assert len(ranks) == reports[0]["group_size"]
         assert len({r["dp"] for r in ranks}) == 1
+        assert len({r["domain"] for r in reports}) == 1
         assert len({r["pcp_rank"] for r in reports}) == 1
         assert sum(r["owner"] for r in reports) == 1
         assert all(r["cache_sha256"] == reports[0]["cache_sha256"] for r in reports)
         shared_bytes += reports[0]["shared_bytes"]
-    if shared[0]["cache"]["tp"] > 1:
+    if shared[0]["cache"]["group_size"] > 1:
         assert shared_bytes < private_bytes, "sharing did not reduce physical storage"
     return {
         "private_bytes": private_bytes,
