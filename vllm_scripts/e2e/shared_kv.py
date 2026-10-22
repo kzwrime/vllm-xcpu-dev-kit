@@ -40,7 +40,7 @@ def cache_report(worker):
         report.update(
             inode=stat.st_ino,
             device=stat.st_dev,
-            writer=shared.writer,
+            owner=shared.owner,
             shared_bytes=sum(t.numel() for t in shared.backing),
             cache_sha256=[
                 hashlib.sha256(t.cpu().numpy().tobytes()).hexdigest()

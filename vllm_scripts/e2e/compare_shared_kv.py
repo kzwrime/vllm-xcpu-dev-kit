@@ -40,7 +40,7 @@ def compare(private_path, shared_path):
         assert len(ranks) == reports[0]["tp"]
         assert len({r["dp"] for r in ranks}) == 1
         assert len({r["pcp_rank"] for r in reports}) == 1
-        assert sum(r["writer"] for r in reports) == 1
+        assert sum(r["owner"] for r in reports) == 1
         assert all(r["cache_sha256"] == reports[0]["cache_sha256"] for r in reports)
         shared_bytes += reports[0]["shared_bytes"]
     if shared[0]["cache"]["tp"] > 1:
