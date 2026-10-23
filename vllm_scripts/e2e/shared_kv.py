@@ -36,10 +36,12 @@ def cache_report(worker):
     if shared:
         import hashlib
 
-        stat = os.stat(os.environ["TORCH_MCPU_SHARED_SIM_FILE"])
+        # The owner removes the simulation file once mapped; the runtime keeps
+        # its identity.
+        device, inode = shared.file_id
         report.update(
-            inode=stat.st_ino,
-            device=stat.st_dev,
+            inode=inode,
+            device=device,
             owner=shared.owner,
             domain=shared.domain,
             group_size=shared.group_size,
