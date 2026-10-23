@@ -126,6 +126,9 @@ def main():
     os.environ.setdefault("VLLM_USE_XCPU_TOPK_SOFTMAX", "1")
     os.environ.setdefault("VLLM_XCPU_QUARK_MXFP4_FORCE_W4A16", "1")
     os.environ.setdefault("VLLM_XCPU_ENABLE_DUMMY_RUN_FAST_PATH", "1")
+    if args.compile:
+        # v0.31 auto-selects breakable CUDA graphs for DSA, which disables compile.
+        os.environ.setdefault("VLLM_USE_BREAKABLE_CUDAGRAPH", "0")
     from vllm import LLM, SamplingParams
 
     options = {}
