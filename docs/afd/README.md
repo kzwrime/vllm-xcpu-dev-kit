@@ -8,11 +8,27 @@
 
 AFD 将 routed experts 放到独立 F ranks：A 保留调度、Attention/GDN、KV、gate/top-k、shared experts 和 dense 层；F 只加载本地 EP 专家。当前是固定 MPMD world，使用 V7 RMA 数据面，不是动态加入/扩缩容服务。
 
+## GLM5.2（FP8 / MXFP4）与 DFlash2（2026-10-15）
+
+真实权重验证拓扑为 A = DP1/TP1（1 rank）+ F = EP2，V8 传输；AFD 不复制权重，总内存与串行 TP1 相同（FP8 约 704 GiB，MXFP4 约 408 GiB）。preset：
+
+```bash
+cd vllm_scripts
+./run_vllm_test.sh -e presets/mpi/moe/GLM-5.2-MXFP4_dp1_tp1_af_ep2_eager_fp8_kvcache_alltoallv_v8.sh --multi-test
+./run_vllm_test.sh -e presets/mpi/moe/dflash/GLM-5.2-MXFP4_dp1_tp1_af_ep2_eager_fp8_kvcache_alltoallv_v8_dflash2_5.sh --multi-test
+# FP8 / compile 版本同名替换 MXFP4→FP8、eager→compile
+```
+
+- A 侧使用插件 `xcpu_af_<format>` loader（`AFD + --enable-expert-parallel` 时由平台自动选择）：在 `DeepseekV2Model.load_weights` 之前丢弃远端 routed expert 张量，且不读取其 weight/packed 数据；F 侧跳过 checkpoint 自带的 MTP 层，只读取本 rank 的专家。
+- `--all2all-backend` 透传给 F，A/F 两侧版本一致；ep_size=1（单 F）可用。
+- 投机解码：允许草稿不含 routed MoE 的方法（DFlash/DFlash2/ngram）；MTP 等需要 F 服务草稿 MoE 层的方法仍拒绝。GLM sparse MLA 在 0.31 上只放开 `method=dflash`。
+- 数值：EP1 与串行逐位一致；EP2 因每个 F 部分和多一次 BF16 舍入而与串行存在设计内差异（与普通 EP 同类），GSM8K 100 题 MXFP4 94→95、FP8 94→93，最终答案 96–98% 相同；compile 与 eager 逐位一致。验证过程、接受率与已知限制见 [开发记录](../dev_log/20261015_GLM5.2-AFD-DFlash2-adaptation.md)。
+
 ## 支持和配置
 
 当前重建验收覆盖 Qwen3-30B-A3B-Instruct-2507 的 BF16、block-FP8、MXFP4A16，V2 runner、eager、BF16 activation、A2（DP1/TP2）+ F2（EP2）。Qwen3.6 和 dummy GLM preset 保留为已有开发入口，本轮未重跑，不据此扩大支持声明。
 
-- 同时设置 `VLLM_XCPU_ENABLE_AF_EP=1`、`VLLM_CPU_USE_MPI=1`、`VLLM_USE_V2_MODEL_RUNNER=1`；AFD preset 使用 `--all2all-backend mpi_alltoallv_v7`。
+- 同时设置 `VLLM_XCPU_ENABLE_AF_EP=1`、`VLLM_CPU_USE_MPI=1`、`VLLM_USE_V2_MODEL_RUNNER=1`。未传 `--all2all-backend` 时 A、F 默认使用 V8（`mpi_alltoallv_v8`，MPI collectives，无需 UCX OSC 参数）；每份 `*_v7.sh` AFD preset 都有同名 `*_v8.sh` 版本（只把 `--all2all-backend` 换成 `mpi_alltoallv_v8`），`_v7` 版本保留，仍显式指定 `mpi_alltoallv_v7`（需要 `--mca osc ucx` 等 RMA 参数）。
 - AFD 提供文件名包含 `_eager_` / `_compile_` 的独立 preset。compile 文件启用 A 侧 `DYNAMO_TRACE_ONCE + Inductor` 和 F 侧每层事务 Inductor 编译。CUDAGraph capture 不支持；实现和验证见 [A/F compile 适配](compile.md)，测试方法见 [E2E 文档](e2e_test.md)。
 - A/F 权重加载完成后、profile/forward 前共同创建窗口；首次 forward 不再创建窗口。
 - A/F 与非 AFD 使用 mpi4py 默认初始化，移除显式线程等级设置及最低等级检查；当前默认请求 MULTIPLE，实测提供等级 3。
