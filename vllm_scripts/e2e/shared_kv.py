@@ -129,6 +129,10 @@ def main():
     if args.compile:
         # v0.31 auto-selects breakable CUDA graphs for DSA, which disables compile.
         os.environ.setdefault("VLLM_USE_BREAKABLE_CUDAGRAPH", "0")
+        # Like the GLM compile presets: the fused indexer K check compares the
+        # static slot_mapping input with dynamic token counts, which guards
+        # T >= max_num_batched_tokens and specializes the TRACE_ONCE graph.
+        os.environ.setdefault("TORCH_XCPU_ENABLE_CHECK", "0")
     from vllm import LLM, SamplingParams
 
     options = {}
