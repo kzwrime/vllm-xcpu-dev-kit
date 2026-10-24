@@ -207,6 +207,8 @@ class AfHostfileTest(unittest.TestCase):
                 preset.write_text(
                     f"""
 export USER_VLLM_DATA_PARALLEL_SIZE={dp}
+export USER_VLLM_TP_SIZE={mpc}
+export USER_VLLM_PP_SIZE=1
 export USER_VLLM_MPC_SIZE={mpc}
 export USER_VLLM_EP_SIZE={ep}
 export USER_VLLM_MODEL=test-model
