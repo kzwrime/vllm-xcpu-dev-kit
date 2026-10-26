@@ -39,7 +39,7 @@
       "name": "vllm-xcpu-dev-kit",
       "path": "./",
       "type": "git-repository",
-      "version": "e33f96044f55e27f4f757fbf766a5ff2aaf7b2c0"
+      "version": "75c1ff455e22d62c7a06fb5a062e0541cab79484"
     }
   ]
 }
