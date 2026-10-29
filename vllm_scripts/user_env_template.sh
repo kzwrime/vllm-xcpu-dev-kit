@@ -12,6 +12,9 @@ export VLLM_DP_MASTER_WORKER_IP="127.0.0.1"         # DP-Rank0 Worker0 IP
 export USER_VLLM_DATA_PARALLEL_RPC_PORT=13345
 export USER_VLLM_PORT=14800
 export VLLM_CPU_KVCACHE_SPACE=6 # KV Cache Size
+# 启动时先占住 KV Cache 大小的设备内存，加载权重和 profile 之后再交给 KV Cache，
+# 避免设备堆碎片导致 KV Cache 整块分配失败。设为 0 关闭。
+export VLLM_XCPU_RESERVE_KV_CACHE="${VLLM_XCPU_RESERVE_KV_CACHE:-1}"
 # export USER_VLLM_EAGER_OR_NOT="--enforce-eager"
 
 # 设置 VLLM_USE_MPI_COORD=1 时，会通过额外的 python 脚本，自动协调并设置以下变量
