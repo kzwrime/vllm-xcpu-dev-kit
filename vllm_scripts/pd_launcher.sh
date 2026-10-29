@@ -80,10 +80,17 @@ pd_write_role_preset() {
     local bootstrap_port="$9"
     local output_file="${10}"
     local pd_kv_backend="${USER_VLLM_PD_KV_BACKEND:-example}"
+    # P 和 D 可以使用不同的 preset（例如 P 不开投机解码）。
+    local role_config_file="$ORIG_CONFIG_FILE"
+    if [ "$role" = "prefill" ] && [ -n "${USER_VLLM_PD_PREFILL_PRESET:-}" ]; then
+        role_config_file="$(realpath "$USER_VLLM_PD_PREFILL_PRESET")"
+    elif [ "$role" = "decode" ] && [ -n "${USER_VLLM_PD_DECODE_PRESET:-}" ]; then
+        role_config_file="$(realpath "$USER_VLLM_PD_DECODE_PRESET")"
+    fi
 
     cat > "$output_file" <<EOF
 #!/bin/bash
-source "$ORIG_CONFIG_FILE"
+source "$role_config_file"
 
 export USER_VLLM_PORT=$port
 export USER_VLLM_DATA_PARALLEL_RPC_PORT=$rpc_port

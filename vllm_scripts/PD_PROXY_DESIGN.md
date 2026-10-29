@@ -64,7 +64,16 @@ USER_VLLM_PD_KV_BACKEND=example|mooncake
 USER_VLLM_PD_MOONCAKE_PROTOCOL=tcp
 USER_VLLM_PD_MOONCAKE_NUM_WORKERS=4
 USER_VLLM_PD_PREFILL_BOOTSTRAP_PORT=18998
+USER_VLLM_PD_PREFILL_PRESET=<preset.sh>   # 可选：prefill 角色改用另一份 preset
+USER_VLLM_PD_DECODE_PRESET=<preset.sh>    # 可选：decode 角色改用另一份 preset
 ```
+
+P 和 D 可以使用不同的 preset（例如 P 的 `max_num_batched_tokens` 多留出
+draft slot），但两边的 KV 布局必须一致：模型、`block_size`、prefix caching /
+mamba 模式、以及 **speculative config**。P 不带 drafter 而 D 带 DFlash 会在
+Mooncake 对齐 KV 区域时报 `registered group index mismatch`，而且 DFlash 的
+drafter context KV 来自 target hidden states，无法由 P 传给 D。详见
+`docs/pd-dflash2-prefill-chunk-v0.31.md`。
 
 当前已验证：
 
