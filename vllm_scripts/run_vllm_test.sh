@@ -38,6 +38,7 @@ usage() {
   --long-context-multi-test
                      并发测试 0.5K、4K、8K 长上下文 QA，并打印和判断全部回复
   --multimodal-test  启动服务后运行 serve_test/test_multimodal.py
+  --sleep-test       启动服务后运行 serve_test/test_sleep_wake.py（需预设开启 --enable-sleep-mode 与 VLLM_SERVER_DEV_MODE=1）
   --multi-test-max-tokens NUM
                      multi test 每个请求的最大输出 token 数，默认 16
   --multi-test-temperature NUM
@@ -131,6 +132,10 @@ while [ $# -gt 0 ]; do
             ;;
         --multimodal-test)
             TEST_MODE="multimodal"
+            shift
+            ;;
+        --sleep-test)
+            TEST_MODE="sleep"
             shift
             ;;
         --multi-test-max-tokens)
@@ -480,6 +485,18 @@ run_test() {
         fi
         log_info "测试日志: $TEST_LOG"
         cat_multi_test_results
+    elif [ "$TEST_MODE" = "sleep" ]; then
+        log_info "运行 sleep / wake_up 释放加速器测试..."
+        [ -n "$TEST_TIMEOUT" ] && log_info "Sleep test 最长运行时间: ${TEST_TIMEOUT} 秒"
+        CURRENT_RUN_OUTPUT_LOGS+=("$TEST_LOG")
+        if run_with_test_timeout python "$SCRIPT_DIR/serve_test/test_sleep_wake.py" "${TEST_ENV_ARGS[@]}" > "$TEST_LOG" 2>&1; then
+            log_success "Sleep test 完成"
+        else
+            TEST_EXIT_CODE=$?
+            log_test_exit "Sleep test" "$TEST_EXIT_CODE"
+        fi
+        log_info "测试日志: $TEST_LOG"
+        cat "$TEST_LOG"
     elif [ "$TEST_MODE" = "sparse_indexer_accuracy" ]; then
         log_info "运行 GLM5.2 sparse-indexer 精度测试（单次调用、2 条序列）..."
         [ -n "$TEST_TIMEOUT" ] && log_info "精度测试最长运行时间: ${TEST_TIMEOUT} 秒"
