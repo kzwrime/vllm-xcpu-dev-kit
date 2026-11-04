@@ -107,6 +107,7 @@ vllm bench serve --port ${USER_VLLM_PORT} \
 # SpecBench 测试：数据文件位于 serve_test/data/spec_bench.jsonl，路径同样与执行目录无关。
 # vllm bench serve --port ${USER_VLLM_PORT} \
 #     --model ${USER_VLLM_MODEL} \
+#     "${BENCH_TOKENIZER_ARGS[@]}" \
 #     --backend vllm \
 #     --endpoint /v1/completions \
 #     --dataset-name spec_bench \

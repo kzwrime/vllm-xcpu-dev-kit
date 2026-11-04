@@ -106,6 +106,17 @@ apply_runtime_overrides() {
 }
 
 # 函数：解析命令行参数并加载环境配置
+# 从 preset 的 VLLM_OPTIONAL_ARGS 取出服务端的 --tokenizer-mode，写入 BENCH_TOKENIZER_ARGS。
+# 在客户端套 chat template 的数据集（如 spec_bench）里传给 vllm bench serve，
+# 使其与服务端一致（例如 DeepSeek-V4.1 的 tokenizer 不带 chat_template，需要 deepseek_v41）。
+# 没有该参数时数组为空，命令行不变。
+set_bench_tokenizer_args() {
+    BENCH_TOKENIZER_ARGS=()
+    if [[ "${VLLM_OPTIONAL_ARGS:-}" =~ --tokenizer-mode[[:space:]]+([^[:space:]]+) ]]; then
+        BENCH_TOKENIZER_ARGS=(--tokenizer-mode "${BASH_REMATCH[1]}")
+    fi
+}
+
 # 用法: parse_args_and_load_env "vllm_scripts目录路径" "$@"
 # 参数: $1 - vllm_scripts 目录的路径 (通常是 $SCRIPT_DIR/..)
 #        $@ - 脚本的所有原始参数
@@ -149,4 +160,5 @@ parse_args_and_load_env() {
     fi
 
     apply_runtime_overrides
+    set_bench_tokenizer_args
 }

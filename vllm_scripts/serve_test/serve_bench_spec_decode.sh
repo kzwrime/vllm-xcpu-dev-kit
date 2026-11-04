@@ -38,8 +38,10 @@ parse_args_and_load_env "$BENCH_SCRIPT_DIR/.." "$@"
 # SPEC_BENCH_NUM_PROMPTS / SPEC_BENCH_CATEGORY / SPEC_BENCH_OUTPUT_LEN / SPEC_BENCH_EXTRA_ARGS override the
 # defaults (1 prompt, coding, 16 tokens, none); e.g. SPEC_BENCH_EXTRA_ARGS="--save-detailed --temperature 0".
 
+# spec_bench 在客户端套 chat template，BENCH_TOKENIZER_ARGS（common.sh）沿用服务端的 --tokenizer-mode。
 vllm bench serve --port ${USER_VLLM_PORT} \
     --model ${USER_VLLM_MODEL} \
+    "${BENCH_TOKENIZER_ARGS[@]}" \
     --backend vllm \
     --endpoint /v1/completions \
     --dataset-name spec_bench \
@@ -57,6 +59,7 @@ vllm bench serve --port ${USER_VLLM_PORT} \
 # SpecBench 测试：数据文件位于 serve_test/data/spec_bench.jsonl，路径同样与执行目录无关。
 # vllm bench serve --port ${USER_VLLM_PORT} \
 #     --model ${USER_VLLM_MODEL} \
+#     "${BENCH_TOKENIZER_ARGS[@]}" \
 #     --backend vllm \
 #     --endpoint /v1/completions \
 #     --dataset-name spec_bench \

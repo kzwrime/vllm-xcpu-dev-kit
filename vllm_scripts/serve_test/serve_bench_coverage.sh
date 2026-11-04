@@ -60,6 +60,7 @@ vllm bench serve --port ${USER_VLLM_PORT} \
 
 # vllm bench serve --port ${USER_VLLM_PORT} \
 #     --model ${USER_VLLM_MODEL} \
+#     "${BENCH_TOKENIZER_ARGS[@]}" \
 #     --backend vllm \
 #     --endpoint /v1/completions \
 #     --dataset-name spec_bench \
