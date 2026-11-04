@@ -36,6 +36,23 @@ fi
 # 解析命令行参数并加载环境配置
 parse_args_and_load_env "$BENCH_SCRIPT_DIR/.." "$@"
 
+# Prefix cache 隔离：
+#   bench 默认固定 --seed 0，同一台服务上重复运行（或同一脚本里连续多次 bench）会发出完全相同的
+#   prompt，后一次会命中前一次留下的 prefix cache，导致 TTFT/吞吐不稳定。
+#   这里给每次脚本运行生成唯一的 cache_salt，通过 --extra-body 注入请求：
+#   不同 salt 的请求之间不会共享 KV block，不依赖 VLLM_SERVER_DEV_MODE，也不需要关闭服务端
+#   prefix caching。如果需要对比"命中 prefix cache"的场景，设置 BENCH_CACHE_SALT 为固定值，
+#   或设置 BENCH_DISABLE_CACHE_SALT=1 关闭隔离。
+#   注意：同一次 bench 内部 prompt 彼此重复造成的命中（如 ShareGPT/SpecBench 数据集本身有重复前缀）
+#   仍属于数据集特性，不在隔离范围内。
+if [ "${BENCH_DISABLE_CACHE_SALT:-0}" = "1" ]; then
+    BENCH_EXTRA_BODY_ARGS=()
+else
+    BENCH_CACHE_SALT="${BENCH_CACHE_SALT:-bench-$(date +%s%N)-$$}"
+    echo "bench cache_salt: ${BENCH_CACHE_SALT}"
+    BENCH_EXTRA_BODY_ARGS=(--extra-body "{\"cache_salt\": \"${BENCH_CACHE_SALT}\"}")
+fi
+
 # Batch Decode 测试
 vllm bench serve --port ${USER_VLLM_PORT} \
     --model ${USER_VLLM_MODEL} \
@@ -46,6 +63,7 @@ vllm bench serve --port ${USER_VLLM_PORT} \
     --random-output-len 8 \
     --random-range-ratio 0.0 \
     --profile \
+    "${BENCH_EXTRA_BODY_ARGS[@]}" \
     --num-prompts 1
 
 # ShareGPT 测试：取消注释即可。路径以本脚本所在目录为基准，不受执行目录影响。
@@ -63,6 +81,7 @@ vllm bench serve --port ${USER_VLLM_PORT} \
 #     --sharegpt-output-len 256 \
 #     --seed 0 \
 #     --profile \
+#     "${BENCH_EXTRA_BODY_ARGS[@]}" \
 #     --disable-shuffle \
 #     --save-result
 #
@@ -97,6 +116,7 @@ vllm bench serve --port ${USER_VLLM_PORT} \
 #     --request-rate inf \
 #     --spec-bench-output-len 256 \
 #     --profile \
+#     "${BENCH_EXTRA_BODY_ARGS[@]}" \
 #     --disable-shuffle \
 #     --save-result
 #
