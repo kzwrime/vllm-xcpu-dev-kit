@@ -35,6 +35,8 @@ fi
 
 # 解析命令行参数并加载环境配置
 parse_args_and_load_env "$BENCH_SCRIPT_DIR/.." "$@"
+# SPEC_BENCH_NUM_PROMPTS / SPEC_BENCH_CATEGORY / SPEC_BENCH_OUTPUT_LEN / SPEC_BENCH_EXTRA_ARGS override the
+# defaults (1 prompt, coding, 16 tokens, none); e.g. SPEC_BENCH_EXTRA_ARGS="--save-detailed --temperature 0".
 
 vllm bench serve --port ${USER_VLLM_PORT} \
     --model ${USER_VLLM_MODEL} \
@@ -42,11 +44,13 @@ vllm bench serve --port ${USER_VLLM_PORT} \
     --endpoint /v1/completions \
     --dataset-name spec_bench \
     --dataset-path "${BENCH_SCRIPT_DIR}/data/spec_bench.jsonl" \
-    --num-prompts 1 \
-    --spec-bench-category coding \
+    --num-prompts "${SPEC_BENCH_NUM_PROMPTS:-1}" \
+    --spec-bench-category "${SPEC_BENCH_CATEGORY:-coding}" \
     --max-concurrency 16 \
     --request-rate inf \
-    --spec-bench-output-len 256 \
+    --spec-bench-output-len "${SPEC_BENCH_OUTPUT_LEN:-16}" \
+    ${SPEC_BENCH_EXTRA_ARGS:-} \
+    --profile \
     --disable-shuffle \
     --save-result
 
