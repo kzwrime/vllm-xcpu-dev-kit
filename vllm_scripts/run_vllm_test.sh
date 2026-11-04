@@ -37,6 +37,9 @@ usage() {
                      运行冻结 4K 长上下文 QA，打印回复并判断答案是否正确
   --long-context-multi-test
                      并发测试 0.5K、4K、8K 长上下文 QA，并打印和判断全部回复
+  --suite-test       一次启动，依次运行 serve_test/test_glm52_suite.py：
+                     单流 / 多流 x 0.5K / 4K，限制输出长度（默认 32 token）；
+                     额外参数通过 SUITE_TEST_ARGS 传入（如 "--concurrency 4 --mixed"）
   --multimodal-test  启动服务后运行 serve_test/test_multimodal.py
   --sleep-test       启动服务后运行 serve_test/test_sleep_wake.py（需预设开启 --enable-sleep-mode 与 VLLM_SERVER_DEV_MODE=1）
   --multi-test-max-tokens NUM
@@ -128,6 +131,10 @@ while [ $# -gt 0 ]; do
             ;;
         --long-context-multi-test)
             TEST_MODE="long_context_multi"
+            shift
+            ;;
+        --suite-test)
+            TEST_MODE="suite"
             shift
             ;;
         --multimodal-test)
@@ -245,7 +252,7 @@ if [ "$PROFILE_TEST" -eq 1 ]; then
     fi
 
     case "$TEST_MODE" in
-        test|multi|multimodal|sparse_indexer_accuracy|long_context_4k|long_context_multi)
+        test|multi|suite|multimodal|sparse_indexer_accuracy|long_context_4k|long_context_multi)
             ;;
         *)
             log_error "--profile 只能用于普通、multi、multimodal、sparse-indexer 或长上下文测试"
@@ -485,6 +492,21 @@ run_test() {
         fi
         log_info "测试日志: $TEST_LOG"
         cat_multi_test_results
+    elif [ "$TEST_MODE" = "suite" ]; then
+        log_info "运行单流/多流 x 0.5K/4K 测试集（一次启动）..."
+        [ -n "$TEST_TIMEOUT" ] && log_info "Suite 最长运行时间: ${TEST_TIMEOUT} 秒"
+        local suite_report="$LOG_DIR/suite_report.json"
+        CURRENT_RUN_OUTPUT_LOGS+=("$TEST_LOG")
+        # shellcheck disable=SC2086
+        if run_with_test_timeout python "$SCRIPT_DIR/serve_test/test_glm52_suite.py" \
+            "${TEST_ENV_ARGS[@]}" --output "$suite_report" ${SUITE_TEST_ARGS:-} 2>&1 | tee "$TEST_LOG"; then
+            log_success "Suite 完成"
+        else
+            TEST_EXIT_CODE=$?
+            log_test_exit "Suite" "$TEST_EXIT_CODE"
+        fi
+        log_info "测试日志: $TEST_LOG"
+        log_info "测试报告: $suite_report"
     elif [ "$TEST_MODE" = "sleep" ]; then
         log_info "运行 sleep / wake_up 释放加速器测试..."
         [ -n "$TEST_TIMEOUT" ] && log_info "Sleep test 最长运行时间: ${TEST_TIMEOUT} 秒"
@@ -674,7 +696,7 @@ fi
 echo ""
 log_info "日志文件位置:"
 launcher_print_service_locations
-if [ "$TEST_MODE" = "test" ] || [ "$TEST_MODE" = "multi" ] || [ "$TEST_MODE" = "multimodal" ] || [ "$TEST_MODE" = "sparse_indexer_accuracy" ] || [ "$TEST_MODE" = "long_context_4k" ] || [ "$TEST_MODE" = "long_context_multi" ]; then
+if [ "$TEST_MODE" = "test" ] || [ "$TEST_MODE" = "multi" ] || [ "$TEST_MODE" = "suite" ] || [ "$TEST_MODE" = "multimodal" ] || [ "$TEST_MODE" = "sparse_indexer_accuracy" ] || [ "$TEST_MODE" = "long_context_4k" ] || [ "$TEST_MODE" = "long_context_multi" ]; then
     log_info "  Test:  $TEST_LOG"
 elif [ "$TEST_MODE" = "bench" ] || [ "$TEST_MODE" = "spec_decode" ] || [ "$TEST_MODE" = "coverage" ]; then
     log_info "  Bench: $BENCH_LOG"
