@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Compile variant of GLM-5.2-FP8_dp1_tp4_eager_fp8_kvcache.sh
+# Compile variant of GLM-5.2-FP8_dp1_tp4_ep4_eager_fp8_kvcache.sh
 # FP8 checkpoint with sparse MLA, prefix caching and FP8 KV cache at DP1/TP4
 # (16 heads per rank, the shape torch_xcpu mega-kernel MLA fused ops target).
 # Used by the one-launch perf/accuracy suite: run_vllm_test.sh --suite-test.
@@ -10,7 +10,8 @@ SCRIPT_DIR="${SCRIPT_DIR%/presets/*}"
 
 # v0.31 auto-selects breakable CUDA graphs for DSA, which disables compile.
 export VLLM_USE_BREAKABLE_CUDAGRAPH=0
-export PD_MODE="NOT_MOE"
+export PD_MODE="MIXED"
+export VLLM_SHARED_EXPERT_DISABLE_TP=0
 export USER_VLLM_MAX_NUM_BATCHED_TOKENS="${USER_VLLM_MAX_NUM_BATCHED_TOKENS:-2048}"
 export VLLM_TEST_MAX_WAIT="${VLLM_TEST_MAX_WAIT:-1800}"
 export VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS="${VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS:-3600}"

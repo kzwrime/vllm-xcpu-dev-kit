@@ -3,14 +3,15 @@
 # GLM-5.2-FP8 at TP4 (16 heads per rank), torch.compile, sparse MLA with FP8 KV
 # cache, DFlash2 draft (5 speculative tokens). TP4 is the layout the fused MLA
 # front half (VLLM_XCPU_FUSED_MLA_QNORM_QB_UK, default off) instantiates for.
-# Companion to GLM-5.2-FP8_dp1_tp4_compile_fp8_kvcache.sh plus the DFlash2 lines
+# Companion to GLM-5.2-FP8_dp1_tp4_ep4_compile_fp8_kvcache.sh plus the DFlash2 lines
 # of the dp2_tp2 dflash2_5 presets.
 
 SCRIPT_DIR="$(realpath "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="${SCRIPT_DIR%/presets/*}"
 
 export VLLM_USE_BREAKABLE_CUDAGRAPH=0
-export PD_MODE="NOT_MOE"
+export PD_MODE="MIXED"
+export VLLM_SHARED_EXPERT_DISABLE_TP=0
 export USER_VLLM_MAX_NUM_BATCHED_TOKENS="${USER_VLLM_MAX_NUM_BATCHED_TOKENS:-2048}"
 export VLLM_TEST_MAX_WAIT="${VLLM_TEST_MAX_WAIT:-3600}"
 export VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS="${VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS:-3600}"
