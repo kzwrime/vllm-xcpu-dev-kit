@@ -177,3 +177,19 @@ GLM-5.2 稀疏 MLA 路径（`plugin/attention/`）：`einsum_mhk_hkn_to_mhn`、`
   （`_af_indices`），不能假设 tuple 顺序；`-> ()` 算子也有前导 None 槽。
 - post-grad dump 用 print_readable（带注解）输出后可直接离线回放；terse
   `str(graph)` 无 meta，无法回放。
+
+### 7.4 命名重构（验证后同日）
+
+- pass 模块移至
+  `vllm_xcpu_plugin/compile_passes/deepseek_v32/fused_mla_qnorm_qb_uk_rope_cache.py`
+  （入口函数 `replace_with_fused_mla_qnorm_qb_uk_rope_cache`），env 改全名
+  `VLLM_XCPU_COMPILE_PASS_DEEPSEEK_V32_FUSED_MLA_QNORM_QB_UK_ROPE_CACHE`
+  （原名 `VLLM_XCPU_COMPILE_PASS_QNORM_QB_UK`）。
+- 删除 2b97937 引入的 eager 前半融合路径（`attention/mla.py` 的
+  `_use_qnorm_qb_uk`/`_enable_qnorm_qb_uk`/`_forward_qnorm_qb_uk`/
+  `_post_load_hooks` 与 env `VLLM_XCPU_FUSED_MLA_QNORM_QB_UK`）：compile pass
+  是该算子唯一发射方，eager 保持 unfused 回归基线。impl 版本传递改为只读
+  compile-pass env。历史 mk_v1/v2 preset 里对该 env 的引用随之失效（preset
+  等同普通 unfused 运行）。
+- 诊断 preset 改名
+  `deepseek_v32_fused_mla_qnorm_qb_uk_rope_cache_dp2tp4ep8.sh`。

@@ -391,8 +391,8 @@ def main():
     path = sys.argv[1]
     expected = int(sys.argv[2]) if len(sys.argv) > 2 else None
 
-    from vllm_xcpu_plugin.compile_passes.qnorm_qb_uk import (
-        replace_with_fused_mla_qnorm_qb_uk,
+    from vllm_xcpu_plugin.compile_passes.deepseek_v32.fused_mla_qnorm_qb_uk_rope_cache import (
+        replace_with_fused_mla_qnorm_qb_uk_rope_cache,
     )
     from torch._inductor.fx_utils import FakeTensorUpdater
     from torch._inductor.fx_passes.post_grad import stable_topological_sort
@@ -409,7 +409,7 @@ def main():
     if not hasattr(gm, "fake_mode"):
         gm.fake_mode = fake_mode
     updater = FakeTensorUpdater(gm)
-    replaced = replace_with_fused_mla_qnorm_qb_uk(g)
+    replaced = replace_with_fused_mla_qnorm_qb_uk_rope_cache(g)
     af_after = sum(
         1 for n in g.nodes
         if n.target is torch.ops.higher_order.auto_functionalized
