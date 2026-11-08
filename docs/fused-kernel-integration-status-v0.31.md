@@ -245,3 +245,58 @@ GLM-5.2 稀疏 MLA 路径（`plugin/attention/`）：`einsum_mhk_hkn_to_mhn`、`
   0 skip、exit 0；生成输出与 phase-1 基线逐 token 一致
   （system_fingerprint 因 pass 源码变化而不同，预期）。
 
+
+## 9. Phase-3：SP all-gather 吸收进 fused op（compile 路径，2026-11-08）
+
+### 9.1 torch_xcpu schema 变更：`ag_comm` int → Tensor
+
+- 动机：编译图里 SP gather 的通信域是 placeholder 张量
+  （`all_gather_into_tensor_out_v2` 的 `comm_ptr_wrapper`，CPU int64 [1]
+  包装的 MPI Fortran 句柄，运行期绑定）；fused op 的 `ag_comm` 原为
+  `int`。烤编译期常量会在编译产物跨进程复用时静默 gather 到错误通信域
+  （cache 投毒类风险），且 pass 无法从图上区分 TP/EP 两个 comm 占位。
+- 变更：raw schema `int ag_comm` → `Tensor? ag_comm`；csrc 入口
+  dispatch 时（host 线程）读一次标量（`.item()`），impl 层内部仍是
+  `int64_t`（GatherArgs / MCPU_LAUNCH_TIMED_KERNEL 捕获链不变）；AOTI
+  shim 由 `scripts/generate_aoti_wrappers.py` 从 m.def schema 自动再生
+  （`Tensor?` → `AtenTensorHandle*` + `resolve_tensor_dispatch_flags`），
+  torch_xcpu 重编即可；ops_defs wrapper 签名
+  `ag_comm: int = 0` → `Tensor | None = None` 并补 both-or-neither 检查。
+- 不引入"同 pass 源码 + env 开关"的吸收开关：图形态由 pattern 决定
+  （无 gather 路径自动回落 phase-2 形态），避免 cache-key 漏洞。
+
+### 9.2 pass 吸收方式
+
+- 检测：`view_ancestor(add_norm.input)` 落在 all_gather af 的结果
+  getitem 上（`dim=0`、landing buffer/shard 均 [_,6144]、comm wrapper
+  [1]）即吸收；否则保持 phase-2 形态（ag_send/ag_comm 置 None）。
+- 发射：`hidden = gather 的 landing buffer`（[4*ceil(s72/4),6144]，≥T
+  且 ≥ shard*world_size，恰好是 op 注释约定的"收集落地缓冲"）、
+  `ag_send = gather 的 input 分片`（MoE 输出 clone，region 边界外）、
+  `ag_comm = 图里的 comm placeholder`（运行期绑定）。
+- 重定向：`hidden_gi` → `slice(getitem(fused,hidden), 0, 0, T)`（吸收
+  时 hidden 是全 buffer，消费者要 T 行切片）；residual/cache/q_norm/cat
+  重定向不变。
+- region 种子追加 gather_af；empty/shard/getitem 链按 close_region 规则
+  自然入区/成边界。
+- 图解剖学（v5 DP2xTP4xEP8，dummy 7 层）：图内 4 个 SP gather，3 个喂
+  下一层 front window（全部吸收），1 个喂输出侧 add+norm（直连 graph
+  output，不属 front window，本 phase 不动）。
+
+### 9.3 验证
+
+- 离线：32 个 live pre-dump + 8 个 AOT extract 全部 add_norm=6 +
+  qnorm=7 总数不变，lint + FakeTensorUpdater 全过；AOT 图吸收后无
+  front 路径残留 gather（吸收 3/4，第 4 个属输出侧）。
+- torch_xcpu 侧串行单测（all_gather world-1 / compile 动态 token）3/3 过；
+  mpi_custom_ops 多 rank 测试同步更新为新签名（wrapper 传 CPU int64 [1]
+  包装张量）。torch_xcpu 的 fused op 文件在仓库里仍是未跟踪状态（算子
+  团队在建），本次 schema 变更只落在工作区，未代为提交。
+- E2E：preset
+  `deepseek_v32_fused_mla_add_norm_qkva_qnorm_qb_uk_rope_cache_dp2tp4ep8.sh`
+  （隔离 cache 全量冷编译，8 rank）：exit 0、8/8 rank "fused 7 MLA front
+  halves"、skip 仅设计内的首层（由 qnorm pass 融合）；8 个新 pre-dump
+  离线回放 7/7；生成输出与 phase-2 基线逐 token 一致（仅
+  system_fingerprint 因 pass 源码变化而不同，预期）。每个 rank 的图内
+  4 个 SP gather：3 个吸收进 front window（ag_comm 绑定 placeholder），
+  1 个属输出侧 add+norm 不在窗口内。
