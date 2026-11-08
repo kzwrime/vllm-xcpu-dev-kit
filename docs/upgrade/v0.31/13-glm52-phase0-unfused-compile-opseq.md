@@ -90,10 +90,43 @@ topk)插在 q_b_proj 与 rotary/W_UK 之间 —— python 路径 fused 层需要
 这正是 pass 方案的优势:pattern 按 def-use 匹配,不受发射顺序影响。
 普通层(3-5)无 indexer 4 算子,q_b_proj 后直接 rotary。
 
+## 图内算子序列(DP2×TP4×EP8,2026-11-08 修复后提取)
+
+产物:`cache/vllm_cache/torch_compile_cache/torch_aot_compile/1bcbcac1…/`
+`rank_0_0`(TP4 每 rank 一份图,EP 同图)。DP2 compile **完整通过**
+(20261108_104750,slots 截断修复 + check 全开,~25 分钟含全新编译)。
+相对 TP1 的图差异:
+
+| op | 次数 | 说明 |
+| --- | --- | --- |
+| all_reduce_out_wrapper | 11 | TP4 集合通信进图(TP1 无) |
+| all_gather_into_tensor_out_v2 | 4 | **SP MoE 尾部 all-gather,每 MoE 层 1 次(Phase 3 锚点)** |
+| fused_add_rms_norm_chunk_out_bf16 | 4 | chunk 布局残差+norm(接 all-gather 之后;TP1 的 14 个 fused_add_rms_norm 中 4 个变为 chunk 变体) |
+| fused_ep_moe_v5_IntelAmxFp8MoeGroupedGemm | 4 | EP MoE v5 单算子(TP1 的 grouped_topk+moe_compute 序列被吸收;shared expert silu 也并入,silu 7→3) |
+| get_masked_input_and_mask / fused_embedding_masked_fill_out | 1+1 | DP 入口 padding 掩码 + embedding 掩码填充 |
+| fp8_scaled_mm_intel_amx_out | 31 | TP1 为 39(MoE 线性移入 fused_ep_moe) |
+
+**MoE 层尾部图内顺序(每个 MoE 层,Phase 3 匹配窗口):**
+
+```
+…router/router_norm/shared expert…
+fused_ep_moe_v5_IntelAmxFp8MoeGroupedGemm   # EP MoE,输出为 chunk 布局
+all_gather_into_tensor_out_v2               # ← Phase 3 目标:吸收进下一算子
+fused_add_rms_norm_chunk_out_bf16           # 下一层残差+norm,动态 chunk 宽
+                                            #   3*ceil(s72/TP)(已是部分融合)
+```
+
+即"SP 尾部 all-gather 吸收进下层 input_layernorm"已有现成的两算子形态
+(gather + chunk-norm 分离);Phase 3 的 pattern 是把二者合一,或验证现有
+chunk 算子已达到吸收目标后跳过。DP 入口的
+`get_masked_input_and_mask`/`fused_embedding_masked_fill` 与此窗口无关。
+
+注意:diag preset 的"隔离 cache"曾因基座重置 SCRIPT_DIR 实际写入主 cache
+(已修,`_DIAG_CACHE_ROOT` 在 source 前捕获);本节产物取自主 cache
+`1bcbcac1…`。
+
 ## 待办(后续阶段)
 
-- DP2×TP4×EP8(`diag/mk_pass/presets/phase0_unfused_compile_dp2tp4ep8.sh`)同
-  样提取:SP MoE 尾部 all-gather 在图内的位置(Phase 3 匹配窗口)。
 - Phase 1:`fused_mla_qnorm_qb_uk_rope_cache` 的 pattern-matcher pass,替换
   插件 python 路径 `_forward_qnorm_qb_uk`。
 - Phase 2:`fused_mla_add_norm_qkva_qnorm_qb_uk_rope_cache` 的 pattern(算子
