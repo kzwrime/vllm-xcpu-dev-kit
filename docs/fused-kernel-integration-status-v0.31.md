@@ -193,3 +193,55 @@ GLM-5.2 稀疏 MLA 路径（`plugin/attention/`）：`einsum_mhk_hkn_to_mhn`、`
   等同普通 unfused 运行）。
 - 诊断 preset 改名
   `deepseek_v32_fused_mla_qnorm_qb_uk_rope_cache_dp2tp4ep8.sh`。
+
+## 8. Phase-2：输入 add-norm + fused_qkv_a + MLA 前半全窗融合（compile 路径，2026-11-08）
+
+### 8.1 接入方式
+
+- 新 pass
+  `compile_passes/deepseek_v32/fused_mla_add_norm_qkva_qnorm_qb_uk_rope_cache.py`，
+  env `VLLM_XCPU_COMPILE_PASS_DEEPSEEK_V32_FUSED_MLA_ADD_NORM_QKVA_`
+  `QNORM_QB_UK_ROPE_CACHE`（1/on→A0，unfused→A1，2→A2，b0→B0）。
+- 窗口在 phase-1 之上向上扩两级：`fused_add_rms_norm_out_bf16`（L2..LN 的
+  输入 add-norm）→ `fp8_scaled_mm_intel_amx_out`（fused_qkv_a，pack
+  [2624,6144]、scale [21,48]、bias=None）→ phase-1 窗口，整体替换为
+  `fused_mla_add_norm_qkva_qnorm_qb_uk_rope_cache`（27 参数；raw schema
+  `-> ()`，经 af clone 返回 hidden/residual/q_c_norm/kv_c_norm/out_q）。
+- 匹配/重写机制抽到共享模块 `deepseek_v32/_front_window.py`
+  （cache_af→…→cat 匹配、region closure、escape 检查、rebase+erase），
+  phase-1 模块瘦身后复用；pass uuid 仍按目录整体哈希。
+- 组合顺序：add_norm pass 先跑，qnorm pass 随后；L2..LN 由 add_norm 融合，
+  首层（纯 rms_norm 输入、无 residual add）由 qnorm 融合 → 每图
+  "fused 7"（6+1）。post-attn 的 `fused_add_rms_norm_chunk_out_bf16` 不在
+  qkv_a def-use 路径上，不会误配。
+- SP gather 层（L5..LN）：add_norm 的 input 是 gather buffer 的
+  `aten.slice`（恰 T 行、行连续），三个 clone 的 getitem 重定向到 fused
+  结果；fused op 的 `hidden` 形参是写变元，af 会克隆 gather 行（[T,6144]
+  一份拷贝/层，inductor 池化吸收）。
+- `ag_send`/`ag_comm` 暂置 None/0；吸收 SP all-gather 是下一 phase。
+- platform install 门改为任一 pass env 开启即装，日志打两个 env 值。
+
+### 8.2 已修坑
+
+- w_qkva_scale 行数是 ceil(2624/128)=21（整除写法得 20；shape gate 在
+  离线回放即拦下）。
+- rebase 克隆循环必须不动点迭代：为带外部消费者的 region 节点创建的克隆，
+  会成为其 region 内 arg 链节点（slice→view→…）的新外部消费者；单遍循环
+  漏克隆导致 erase 残留（AOT extract 形式暴露，live dump 无该拓扑）。
+- fused op 的 qkv workspace 必须是 aligned 行数
+  （`aligned_linear_rows(T)=16*ceil(T/16)`，FP8 线性内核按 16 行组写入）：
+  复用 qkv_a mm 自己的 out buffer（图里本就是 [16*ceil(s72/16),2624]）。
+  首版分配 [T,2624] 在 dummy run（tokens=1→需 16 行）被 C++ 检查拒绝
+  （AOTI 包装只报 "API call failed"，吞掉具体 TORCH_CHECK 消息）。
+
+### 8.3 验证
+
+- 离线：24 个 live post-grad pre-dump（DP2xTP4xEP8）+ 8 个 AOT extract
+  全部 add_norm=6 + qnorm=1 = 7，FakeTensorUpdater + lint 全过；env 冒烟、
+  ruff、mypy 通过；harness 改为双 pass 运行并打印分解。
+- E2E（preset
+  `deepseek_v32_fused_mla_add_norm_qkva_qnorm_qb_uk_rope_cache_dp2tp4ep8.sh`，
+  DP2 TP4 EP8，共享隔离 cache）：8/8 rank "fused 7 MLA front halves"、
+  0 skip、exit 0；生成输出与 phase-1 基线逐 token 一致
+  （system_fingerprint 因 pass 源码变化而不同，预期）。
+

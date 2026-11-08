@@ -391,6 +391,9 @@ def main():
     path = sys.argv[1]
     expected = int(sys.argv[2]) if len(sys.argv) > 2 else None
 
+    from vllm_xcpu_plugin.compile_passes.deepseek_v32.fused_mla_add_norm_qkva_qnorm_qb_uk_rope_cache import (
+        replace_with_fused_mla_add_norm_qkva_qnorm_qb_uk_rope_cache,
+    )
     from vllm_xcpu_plugin.compile_passes.deepseek_v32.fused_mla_qnorm_qb_uk_rope_cache import (
         replace_with_fused_mla_qnorm_qb_uk_rope_cache,
     )
@@ -409,15 +412,22 @@ def main():
     if not hasattr(gm, "fake_mode"):
         gm.fake_mode = fake_mode
     updater = FakeTensorUpdater(gm)
-    replaced = replace_with_fused_mla_qnorm_qb_uk_rope_cache(g)
+    add_norm_n = replace_with_fused_mla_add_norm_qkva_qnorm_qb_uk_rope_cache(g)
+    qnorm_n = replace_with_fused_mla_qnorm_qb_uk_rope_cache(g)
+    replaced = add_norm_n + qnorm_n
     af_after = sum(
         1 for n in g.nodes
         if n.target is torch.ops.higher_order.auto_functionalized
     )
+    fused_ops = (
+        torch.ops.torch_xcpu.fused_mla_qnorm_qb_uk_rope_cache.default,
+        torch.ops.torch_xcpu.fused_mla_add_norm_qkva_qnorm_qb_uk_rope_cache.default,
+    )
     fused_af = sum(
-        1 for n in g.nodes
+        1
+        for n in g.nodes
         if n.target is torch.ops.higher_order.auto_functionalized
-        and n.args[0] is torch.ops.torch_xcpu.fused_mla_qnorm_qb_uk_rope_cache.default
+        and n.args[0] in fused_ops
     )
     stable_topological_sort(g)
     from torch._inductor.virtualized import V
@@ -456,25 +466,34 @@ def main():
         n
         for n in g.nodes
         if n.target is torch.ops.higher_order.auto_functionalized
-        and n.args[0] is torch.ops.torch_xcpu.fused_mla_qnorm_qb_uk_rope_cache.default
+        and n.args[0] in fused_ops
     ]
     for f in fused_nodes:
         for arg in M_args(f):
             assert "val" in arg.meta, f"{arg.name} has no fake val"
-    if fused_nodes:
-        f0 = fused_nodes[0]
+    for f in fused_nodes:
+        print(f"  fused op: {f.args[0].name()}")
         for kw in ("qkv", "slots", "out_q"):
-            v = f0.kwargs[kw].meta["val"]
-            print(f"  fused arg {kw}: {tuple(v.shape)} {v.dtype}")
-        for kw in ("q_c_norm", "kv_cache", "out_q"):
-            gi = f0.kwargs[kw]
-        q_c = next(
-            u for u in fused_nodes[0].users
-            if u.target is operator.getitem and u.args[1] == 3
+            if kw in f.kwargs and isinstance(f.kwargs[kw], torch.fx.Node):
+                v = f.kwargs[kw].meta["val"]
+                print(f"    arg {kw}: {tuple(v.shape)} {v.dtype}")
+        gi_idx = (
+            1
+            if f.args[0]
+            is torch.ops.torch_xcpu.fused_mla_add_norm_qkva_qnorm_qb_uk_rope_cache.default
+            else 3
         )
-        print(f"  fused getitem q_c_norm: {tuple(q_c.meta['val'].shape)}")
+        q_c = next(
+            u
+            for u in f.users
+            if u.target is operator.getitem and u.args[1] == gi_idx
+        )
+        print(f"    getitem[{gi_idx}]: {tuple(q_c.meta['val'].shape)}")
     print(f"nodes: {n_before} -> {n_after}   af nodes: {af_before} -> {af_after}")
-    print(f"pass replaced: {replaced}   fused ops in graph: {fused_af}")
+    print(
+        f"pass replaced: add_norm={add_norm_n} qnorm={qnorm_n} "
+        f"total={replaced}   fused ops in graph: {fused_af}"
+    )
     print(f"FakeTensorUpdater updated: {updated} nodes")
     if expected is not None:
         assert replaced == expected, f"expected {expected}, got {replaced}"
