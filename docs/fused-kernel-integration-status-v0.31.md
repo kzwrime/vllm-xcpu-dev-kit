@@ -300,3 +300,35 @@ GLM-5.2 稀疏 MLA 路径（`plugin/attention/`）：`einsum_mhk_hkn_to_mhn`、`
   system_fingerprint 因 pass 源码变化而不同，预期）。每个 rank 的图内
   4 个 SP gather：3 个吸收进 front window（ag_comm 绑定 placeholder），
   1 个属输出侧 add+norm 不在窗口内。
+
+## 10. 版本阶梯重编号 + all-gather 构建期宏（2026-11-09）
+
+两个融合算子的 impl 版本语义重排：**A0 一律是不融合的保守基线**（算子内部
+只跑逐算子序列，永不 launch mega-kernel），A1->AN 按优化力度递增。此前
+"A0（默认）= mega v1 / A1 = unfused" 的映射作废；两算子 C++ 默认值改为
+A0（插件 `_select_compile_pass_impls` 会在 pass env 打开时显式钉版本，
+preset 行为不变）。
+
+| 算子 | 旧映射 | 新映射 |
+| --- | --- | --- |
+| `fused_mla_qnorm_qb_uk_rope_cache` | A0=mk v1, A1=unfused, A2=mk v2, A3=mk rope_cache v1（默认 A3） | A0=unfused（默认）, A1=mk v1, A2=mk v2, A3=mk rope_cache v1 |
+| `fused_mla_add_norm_qkva_qnorm_qb_uk_rope_cache` | A0=mk v1, A1=unfused, A2=mk v2（默认 A0） | A0=unfused（默认）, A1=mk v1, A2=mk v2 |
+
+- plugin `envs.py` 两个 parser 映射同步反转：`1/v1→A1`、`2/v2→A2`、
+  `3/v3→A3`（qnorm 的 `on`→A3，add_norm 的 `on`→A1）、`unfused→A0`。
+  现有 preset（ADD_NORM=1、QNORM=3）在新映射下仍选中与重编号前相同的
+  内核。
+- add_norm 的 **all-gather 重叠改为构建期内置宏**（§9.1 "不引入 env
+  开关"的替代方案）：impl 文件内 `#ifndef
+  TORCH_XCPU_FUSED_MLA_ADD_NORM_QKVA_FUSE_ALL_GATHER`，默认 0 =
+  collective 是流上 mega-kernel 之前的一个独立小任务（与逐算子路径同一
+  入口），mega-kernel 用不带 gather 的段程序实例；置 1（`-D...=1`）恢复
+  helper 线程重叠。两档输出逐位一致；图形态与 pass 侧吸收逻辑不受影响
+  （宏只改 op 内部时序，不改 schema / 图）。
+- B0 占位处按新语义补建议注释：条件允许时只实现最高优化等级的一个版本
+  （qnorm 替换 A3、add_norm 替换 A2 段程序）并简化设计——A 系列的分级
+  与逐算子退路由 A0 承担，B0 不需要复刻那么多版本。
+- 触及：`torch_xcpu_impl/src/deepseek_v32/` 两个 impl .cpp、对应
+  include 头、`operator_version.cpp` 注册表、ops_defs 两个 docstring、
+  torch_xcpu 串行 / mpi 单测的版本 pin 与 bitwise 判定条件
+  （`VERSION=="A1"` → `VERSION=="A0"`）、plugin `envs.py`。

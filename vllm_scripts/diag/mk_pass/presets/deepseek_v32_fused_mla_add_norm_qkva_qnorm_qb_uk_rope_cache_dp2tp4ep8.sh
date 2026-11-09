@@ -31,4 +31,4 @@ export TORCHINDUCTOR_CACHE_DIR="${_DIAG_CACHE_ROOT}/inductor"
 unset _DIAG_CACHE_ROOT
 
 echo "Preset: diag/mk_pass/deepseek_v32_fused_mla_add_norm_qkva_qnorm_qb_uk_rope_cache_dp2tp4ep8" \
-     "| compile pass add_norm A0 + qnorm A3, DP2 TP4 EP8, isolated cache=${TORCHINDUCTOR_CACHE_DIR}"
+     "| compile pass add_norm A1(v1) + qnorm A3, DP2 TP4 EP8, isolated cache=${TORCHINDUCTOR_CACHE_DIR}"
