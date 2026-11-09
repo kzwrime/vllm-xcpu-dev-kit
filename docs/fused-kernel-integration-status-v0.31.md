@@ -346,10 +346,27 @@ ADD_NORM_QKVA_QNORM_QB_UK_ROPE_CACHE}` 收敛为纯融合开关（`0`=不融合�
   （plugin 在 import 时写 torch_xcpu env 的隐藏状态与
   「torch_xcpu 先于 plugin import」告警分支随之消失；此前影子解析表已迫使
   重编号同步过一次 plugin）。
-- 注意旧值兼容性：`bool(int(...))` 下 `=3` 仍为「融合开」，但 impl 落到
-  torch_xcpu 默认 A0（算子内逐算子）——想要 mega-kernel 的脚本必须补
-  `TORCH_XCPU_*_IMPL=A1/A2/A3`；`on/off` 字符串不再接受（int 报错）。
+- 注意旧值兼容性：`bool(int(...))` 下 `=3` 仍为「融合开」，impl 落到
+  torch_xcpu 默认档（§12 起默认 = 最高档，mega-kernel 无需额外 env）；
+  `on/off` 字符串不再接受（int 报错）。
 - 预设同步：两个 mk_pass diag 预设改为 `=1` + 显式
   `TORCH_XCPU_*_IMPL=A3/A1`（选中内核不变）；dflash `_mk_v1.sh`/`_mk_v2.sh`
   从「pass 落地前的占位」激活为真正的融合预设（A1 / A2）。
 - 图形态不受影响（pass 与 env 值无关），编译 cache 产物继续有效。
+
+## 12. torch_xcpu 融合默认档 = 最高级（2026-11-09）
+
+`operator_version.cpp` 注册表把两个融合算子的默认 impl 提到最高优化档：
+qnorm `A3`（rope_cache_write all-in-one）、add_norm `A2`（RMA handoff）。
+配合 §11 的 0/1 融合开关，plugin env `=1` 即得到最高档 mega-kernel，无需
+任何 `TORCH_XCPU_*_IMPL`；想要逐算子基线/指定档位仍用该 env（`A0`..）。
+
+- 探测语义随之变化：默认即 mega，所以任何 import torch_xcpu 的进程都会在
+  启动时做一次 PE 探测（模拟下 `omp_get_max_threads() >= 96`；不够打
+  一次性 stderr 提示并优雅退回逐算子）。显式 `=A0` 的进程仍零探测。
+- 显式 pin 不受影响：串行 / mpi 测试、diag 预设、dflash mk_v1/mk_v2 都
+  显式设 env，选中内核不变。
+- 验证：重编 0 error；fallback 消息确认默认 `A3`/`A2`；串行 138（74+64）
+  全过，add_norm 以 A2 pin 复跑 64 全过；8 线程 import 打一次性提示。
+- mk 文档同步：README 两个接入条目、kernels-layer §4d 版本行（顺带修正
+  其残留的旧编号描述）与 §4g 默认档。
