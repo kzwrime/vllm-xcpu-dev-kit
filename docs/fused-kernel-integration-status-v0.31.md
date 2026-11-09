@@ -290,8 +290,8 @@ GLM-5.2 稀疏 MLA 路径（`plugin/attention/`）：`einsum_mhk_hkn_to_mhn`、`
   front 路径残留 gather（吸收 3/4，第 4 个属输出侧）。
 - torch_xcpu 侧串行单测（all_gather world-1 / compile 动态 token）3/3 过；
   mpi_custom_ops 多 rank 测试同步更新为新签名（wrapper 传 CPU int64 [1]
-  包装张量）。torch_xcpu 的 fused op 文件在仓库里仍是未跟踪状态（算子
-  团队在建），本次 schema 变更只落在工作区，未代为提交。
+  包装张量）。torch_xcpu 的 fused op 文件当时还未跟踪（算子团队在建），
+  本次 schema 变更只落在工作区；2026-11-09 已随算子整理提交（§10）。
 - E2E：preset
   `deepseek_v32_fused_mla_add_norm_qkva_qnorm_qb_uk_rope_cache_dp2tp4ep8.sh`
   （隔离 cache 全量冷编译，8 rank）：exit 0、8/8 rank "fused 7 MLA front
