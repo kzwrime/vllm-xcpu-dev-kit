@@ -332,3 +332,24 @@ preset 行为不变）。
   include 头、`operator_version.cpp` 注册表、ops_defs 两个 docstring、
   torch_xcpu 串行 / mpi 单测的版本 pin 与 bitwise 判定条件
   （`VERSION=="A1"` → `VERSION=="A0"`）、plugin `envs.py`。
+
+## 11. plugin env 收敛为 0/1 融合开关（2026-11-09）
+
+重编号后两层职责正交：compile pass 发出融合算子调用（图形态与 impl 无关），
+算子内部跑什么实现是 torch_xcpu 自己的事。plugin 的
+`VLLM_XCPU_COMPILE_PASS_DEEPSEEK_V32_FUSED_MLA_{QNORM_QB_UK_ROPE_CACHE,
+ADD_NORM_QKVA_QNORM_QB_UK_ROPE_CACHE}` 收敛为纯融合开关（`0`=不融合默认 /
+`1`=融合，仓库标准 `bool(int(...))` 惯写法）；版本选择完全交给 torch_xcpu 的
+`TORCH_XCPU_*_IMPL`，由预设/用户直接 export。
+
+- 删除 `envs.py` 的版本解析表与 `_select_compile_pass_impls()` 跨层 pinning
+  （plugin 在 import 时写 torch_xcpu env 的隐藏状态与
+  「torch_xcpu 先于 plugin import」告警分支随之消失；此前影子解析表已迫使
+  重编号同步过一次 plugin）。
+- 注意旧值兼容性：`bool(int(...))` 下 `=3` 仍为「融合开」，但 impl 落到
+  torch_xcpu 默认 A0（算子内逐算子）——想要 mega-kernel 的脚本必须补
+  `TORCH_XCPU_*_IMPL=A1/A2/A3`；`on/off` 字符串不再接受（int 报错）。
+- 预设同步：两个 mk_pass diag 预设改为 `=1` + 显式
+  `TORCH_XCPU_*_IMPL=A3/A1`（选中内核不变）；dflash `_mk_v1.sh`/`_mk_v2.sh`
+  从「pass 落地前的占位」激活为真正的融合预设（A1 / A2）。
+- 图形态不受影响（pass 与 env 值无关），编译 cache 产物继续有效。
