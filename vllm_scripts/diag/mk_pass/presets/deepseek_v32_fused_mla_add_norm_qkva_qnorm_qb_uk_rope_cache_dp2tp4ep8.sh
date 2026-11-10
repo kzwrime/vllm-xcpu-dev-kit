@@ -2,9 +2,11 @@
 
 # 阶段 2(MLA 融合迁移到 compile pass)端到端验证:
 #   在 phase-1 之上打开 add_norm 的融合(compile pass env=1)并选中 mega-kernel
-#   v1(IMPL env=A1)。L2..LN 的输入 add-norm + fused_qkv_a + MLA 前半应替换为
-#   fused_mla_add_norm_qkva_qnorm_qb_uk_rope_cache;首层(纯 rms_norm 输入,无
-#   residual add)仍由 phase-1 pass 融合(共 "fused 7 MLA front halves")。
+#   v1(IMPL env=A1)。L2..LN 的输入 add-norm + fused_qkv_a + MLA 前半按层替换为两
+#   个互不相干的算子(2026-11-10 解耦):shared 层(无 sparse indexer)→
+#   fused_mla_add_norm_qkva_qnorm_qb_uk_rope_cache;full 层(带 indexer)→
+#   fused_mla_add_norm_qkva_wk_wq_qnorm_qb_uk_rope_cache(自己的 IMPL env,同样 A1)。
+#   首层(纯 rms_norm 输入,无 residual add)仍由 phase-1 pass 融合。
 
 SCRIPT_DIR="$(realpath "${BASH_SOURCE[0]}")"
 _DIAG_CACHE_ROOT="${SCRIPT_DIR%/presets/*}/cache"
@@ -14,9 +16,13 @@ source "${SCRIPT_DIR%/diag*}/presets/mpi/moe/GLM-5.2-FP8-dummy-7-layer-lite_dp2_
 export USER_VLLM_EAGER_OR_NOT=""
 export VLLM_XCPU_FUSED_MLA=0
 export VLLM_XCPU_FUSED_MLA_VPROJ=0
+# bf16 linear 接管：wk_weights_proj 在 process_weights_after_loading 被 prepack，
+# full 层 compile pass 匹配的正是接管后的 bf16_linear_<backend>_out 节点（packed 权重）。
+export VLLM_USE_XCPU_LINEAR=1
 export VLLM_XCPU_COMPILE_PASS_DEEPSEEK_V32_FUSED_MLA_ADD_NORM_QKVA_QNORM_QB_UK_ROPE_CACHE=1
 export VLLM_XCPU_COMPILE_PASS_DEEPSEEK_V32_FUSED_MLA_QNORM_QB_UK_ROPE_CACHE=1
 export TORCH_XCPU_FUSED_MLA_ADD_NORM_QKVA_QNORM_QB_UK_ROPE_CACHE_IMPL=A1
+export TORCH_XCPU_FUSED_MLA_ADD_NORM_QKVA_WK_WQ_QNORM_QB_UK_ROPE_CACHE_IMPL=A1
 export TORCH_XCPU_FUSED_MLA_QNORM_QB_UK_ROPE_CACHE_IMPL=A3
 export VLLM_TEST_MAX_WAIT="${VLLM_TEST_MAX_WAIT:-1500}"
 export VLLM_XCPU_DUMP_POST_GRAD_GRAPH="${_DIAG_CACHE_ROOT}/post_grad_dump/graph"
@@ -27,4 +33,4 @@ export TORCHINDUCTOR_CACHE_DIR="${_DIAG_CACHE_ROOT}/inductor"
 unset _DIAG_CACHE_ROOT
 
 echo "Preset: diag/mk_pass/deepseek_v32_fused_mla_add_norm_qkva_qnorm_qb_uk_rope_cache_dp2tp4ep8" \
-     "| compile pass on, add_norm impl A1(v1) + qnorm impl A3, DP2 TP4 EP8, isolated cache=${TORCHINDUCTOR_CACHE_DIR}"
+     "| compile pass on, shared 层 add_norm impl A1(v1) + full 层 wk_wq op A1 + qnorm impl A3, DP2 TP4 EP8, isolated cache=${TORCHINDUCTOR_CACHE_DIR}"

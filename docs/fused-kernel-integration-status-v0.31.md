@@ -370,3 +370,105 @@ qnorm `A3`（rope_cache_write all-in-one）、add_norm `A2`（RMA handoff）。
   全过，add_norm 以 A2 pin 复跑 64 全过；8 线程 import 打一次性提示。
 - mk 文档同步：README 两个接入条目、kernels-layer §4d 版本行（顺带修正
   其残留的旧编号描述）与 §4g 默认档。
+
+## 13. indexer 算子解耦：独立算子 + 接口层复原（2026-11-10）
+
+2026-11-09 的接线把 sparse indexer 做成了 add_norm 算子的**可空参数**
+（五个张量全给或全 None、`HasIndexer` 模板分流 shared/full 两实例）。
+回滚为两个互不相干的算子——接口层没有任何共享形态：
+
+- `fused_mla_add_norm_qkva_qnorm_qb_uk_rope_cache`（shared 层算子）
+  **整体恢复到 HEAD**：schema 不再收 `w_wq` / `w_wq_scale` / `w_wk` /
+  `indexer_q` / `indexer_kw`，python wrapper 回 5 元组，impl 恢复
+  v1/v2 两段；v2 段 = 恢复后的无 indexer 段（默认档 A2，§12 不变）。
+  pytest / mk 测试 / Makefile / sram_report 一并复原。
+- `fused_mla_add_norm_qkva_wk_wq_qnorm_qb_uk_rope_cache`（full 层算子，
+  新增）：五个 indexer 张量**必填**，返回 6 元组（多了
+  `indexer_q` / `indexer_kw`）。版本阶梯
+  `TORCH_XCPU_FUSED_MLA_ADD_NORM_QKVA_WK_WQ_QNORM_QB_UK_ROPE_CACHE_IMPL`：
+  A0=逐算子（默认档 A1），A1=`FusedAddNormQkvaGemmWkGemmQkvNormQbGemm
+  WqGemmUkEinsumRopeCacheWriteV1`（唯一带 indexer 的段，删掉了
+  `HasIndexer` 模板参数与 `Args::w_wq` 判空的退化分支，段内新增
+  `GemmPesPerSubDie <= qkva_pes_of(kSubDies-1)` 的 static_assert），
+  B0 占位。mk 测试只剩带 indexer 的实例，sram-report 复核
+  Sram 367872 / free 19200 不变。
+- plugin compile pass（`fused_mla_add_norm_qkva_qnorm_qb_uk_rope_cache.py`）
+  重写为按层二选一：full 层（两块 indexer GEMM 都在）→ 新算子 + 新算子
+  的 `backend_supported` 门；shared 层（都没有）→ shared 算子 HEAD 形态
+  + 原门；只见其一 → skip 该层。`_front_window` 的后端泛化
+  （`_is_fp8_mm_af` / `_fp8_mm_backend` / `backend_supported`）保留。
+- **compile factors 补注册**（2026-11-07 那次改动未提交、已丢失）：两个
+  pass 开关 `VLLM_XCPU_COMPILE_PASS_DEEPSEEK_V32_FUSED_MLA_{QNORM_QB_UK
+  _ROPE_CACHE, ADD_NORM_QKVA_QNORM_QB_UK_ROPE_CACHE}` 注册进
+  `vllm/vllm/envs.py`（0/1，进 compile_factors 哈希）。两个
+  `TORCH_XCPU_*_IMPL` **刻意不注册**——它们只在运行时选内核，不改被
+  trace 的图，哈希它们只会造成无谓的 cache 失效。
+- preset 同步：`_mk_v1` / `_mk_v2` / dummy-lite `_mk_v2` / diag
+  `dp2tp4ep8{,_v2}` 都加上新算子的 `…WK_WQ…IMPL=A1`（mk_v2 系列注释里
+  「v2 槽位 = 唯一带 indexer 的段」的旧说法全部改掉）。
+- AOT 桥：`scripts/generate_aoti_wrappers.py` 的 `_CPP_ONLY_IMPLS` 补上
+  新算子的 impl 名并重新生成（否则 `aoti_torch_xcpu.cpp` 缺前置声明，
+  python 扩展编译失败）。
+
+## 14. bf16 linear 接管适配：wk GEMM 吃 prepack 权重 + 门/检查修正（2026-11-10）
+
+`VLLM_USE_XCPU_LINEAR=1`（`vllm/model_executor/layers/utils.py` 的
+`dispatch_xcpu_bf16_linear`，默认关）会在
+`process_weights_after_loading` 把普通 bf16 linear 权重 prepack 进
+`Bf16LinearParams.packed_weight` 并释放 checkpoint 原始权重。full 层
+wk_wq 算子里的 `wk_weights_proj`（`w_wk` GEMM）从此只有一种来源：
+BF16 线性后端 prepack 后的 packed weight。适配内容：
+
+- **删手写 `run_wk_mm`**：wk GEMM 不再自写循环，段程序 / 逐算子
+  fallback 全部改吃线性后端 packed 权重（`w_wk` 参数收 prepack 后
+  布局）。全仓 grep 确认无残留调用。
+- **mk gemm 特化**：新增且只新增 wk GEMM 需要的形状/布局——
+  x86：`bf16_nblocked_vnni_16x32x512.h`（intel_amx 后端，VNNI 直读）+
+  `bf16_nblocked_kmajor_16x32x512.h`（portable/acc，重排），共用模板
+  `bf16_nblocked.h`（N 32/64、K 32 的倍数）；NPU：`bf16_acc_16x32x512.h`
+  + `npu/acc_bf16_weight.h`（bf16_acc，当前 portable 占位格式）。
+  mega-kernel 用不到的形状/布局一律不加特化（checkpoint KMajor fp8
+  照旧走参考实现），有调用方再补文件（x86_amx.h 头注释规则不变）。
+- **门判定收紧为配对语义**：impl 层 `backend_supported` 原来只查两个
+  后端各自有逐算子入口，漏掉了「有入口但没有配对 mk 入口」的组合
+  （onednn BF16 布局不透明、无 mk 入口）——pytest 的 onednn 拒绝用例
+  曾因此挂。现改为 `mk_family_for(fp8, bf16).plain/trace != nullptr`，
+  python `supported()` / compile pass / schema op / csrc entry 消费同一
+  判定，csrc entry 的 TORCH_CHECK 文案同步改为配对语义。
+- **compile pass 无结构性改动**：pass 本来就匹配接管后的
+  `bf16_linear_<backend>_out` 节点（packed 权重直连图输入），只需 diag
+  preset 显式 `export VLLM_USE_XCPU_LINEAR=1`（graph 内容 env，天然进
+  cache key，无需注册 envs.py）。post-grad dump 确认 3 个 full 层节点
+  替换为 `fused_mla_add_norm_qkva_wk_wq_qnorm_qb_uk_rope_cache`，
+  `w_wk = arg47_1`（packed bf16 图输入）、`fp8_backend=0` /
+  `bf16_backend=1`（intel_amx 配对）。
+- **E2E 崩溃修复——indexer_kw 检查放宽**：compile 路径下 inductor 从
+  pool carve 的 `indexer_kw` workspace 首维是 `align16(T)`（16 行对齐
+  分配），而 csrc entry 卡精确 `[T,160]`——T 非 16 倍数时必炸。下游只
+  view 前 T 行消费（`[T,128]@0 + [T,32]@128`），检查放宽为
+  `[>= T,160]`，python 路径的精确 `[T,160]` 照旧通过。定位手段说明：
+  AOTI 桥的异常链会把 TORCH_CHECK 文本吞成
+  `«call» API call failed at «file», line «N»`
+  （`AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE` → `set_torch_exception_what`
+  → headeronly shim 只重建外层文案），需在 csrc entry（手写层，不会被
+  生成器冲掉）临时 try/catch 打 `e.what()`；生成的
+  `aoti_torch_xcpu.cpp` 不要拿来做临时打点（会被并发再生成）。
+- **验证**（模型 = GLM-5.2-FP8-dummy-7-layer-lite，DP2 TP4 EP8，8 rank
+  × OMP_NUM_THREADS=32 → 不足 96 PE，运行时算子内部退逐算子；融合
+  mk 路径由 96 线程的 pytest/verify/bench 覆盖）：
+  - E2E diag compile preset（`diag/mk_pass/presets/
+    deepseek_v32_fused_mla_add_norm_qkva_qnorm_qb_uk_rope_cache_dp2tp4ep8.sh`，
+    `VLLM_USE_XCPU_LINEAR=1` + 双 pass 开关 + A1/A1/A3）：
+    **服务就绪 + 测试完成，exit 0**，带/不带临时打点各跑一次均绿；
+    post-grad dump 与 AOT 产物（cache key 未变，复跑无重编译日志）
+    证明融合图 + packed 权重接线在真实 E2E 里生效。
+  - pytest（torch_xcpu/test）：wk_wq + add_norm 两族 128/128 全过；
+    deepseek_v32 全目录 203 例 202 过 + 1 个**本轮无关的既有失败**
+    （`test_fused_mla_rope_cache` bf16-cache 变体报
+    `DMA outer strides must be four-byte aligned`——独立 rope 算子，
+    非 wk_wq/add_norm 家族，对应上一轮 interleaved-only / 默认档最高
+    提交，遗留待查）。
+  - `cd torch_xcpu_impl/test/mk && OMP_NUM_THREADS=96 make verify`：
+    all passed（含 wk_wq v1 段 sync/非 sync）。
+  - `benchmark_fused_mla_add_norm_qkva_wk_wq_v1.py --check`：PASS
+    （4.85x）。
