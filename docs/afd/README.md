@@ -39,6 +39,13 @@ cd vllm_scripts
 - 固定 world 通过 launcher 终止。当前只验收启动失败，不承诺 STOP/ACK、运行期故障恢复或无损重启。
 - 保留现有全局进程名清理策略；共享机器上的非 AFD 清理可能结束 AFD，按本轮意见接受此限制。AFD 自身仍有 run ID 清理及远端 CHECK。
 
+## 与 Engram 拆分共享的基础设施（2026-11-04）
+
+AF-EP 与 DeepSeek-V4.1 的 Engram 拆分共用 `vllm_xcpu_plugin/disagg/`（`PairSession` 会话基类、`ClientRegistry`、
+`run_role_service` 对端进程骨架）和 `MpiWorld.pair_comm`（注意力 + 某一角色的子通信域）。`serve_afd_mp_rpc_all_mpi_template.sh`
+现在是 `serve_mpmd_mp_rpc_all_mpi_template.sh` 的包装：rank `[0, A)` 为注意力，`[A, A+F)` 为 F，`[A+F, A+F+E)` 为 Engram，
+F / E 任一可为 0，两种拆分可以同时开启（各自在自己的角色对通信域上交换）。AF-EP 的 V7/V8 协议、C++ 端点与 preset 不变。
+
 ## 重建与运行
 
 从根目录激活 `.venv`。按 `torch_mcpu → torch_xcpu → torch_mpi_ext` 次序 clean/build；具体已执行命令和开关见验收报告。V7 删除 epoch 改变算子签名，不能混用旧安装库。

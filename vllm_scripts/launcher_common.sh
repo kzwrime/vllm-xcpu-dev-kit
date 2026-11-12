@@ -392,10 +392,12 @@ launcher_cleanup_processes() {
             pkill -TERM -f "vllm serve" 2>&1 || true
             pkill -TERM -f "run_mp_rpc_worker" 2>&1 || true
             pkill -TERM -f "serve_mp_rpc_all_mpi_template.sh" 2>&1 || true
+            pkill -TERM -f "vllm_xcpu_plugin.engram_disagg.server" 2>&1 || true
             sleep 5
             pkill -9 -f "vllm serve" 2>&1 || true
             pkill -9 -f "run_mp_rpc_worker" 2>&1 || true
             pkill -9 -f "serve_mp_rpc_all_mpi_template.sh" 2>&1 || true
+            pkill -9 -f "vllm_xcpu_plugin.engram_disagg.server" 2>&1 || true
             pkill -9 -f "mpirun.*serve_mp_rpc_all_mpi_template.sh" 2>&1 || true
         } >> "$MPI_CLEANUP_LOG" 2>&1
     fi
@@ -565,8 +567,14 @@ launcher_start_mpi() {
         mpi_run_args+=(--hostfile "$mpi_hostfile")
     fi
 
-    if [ "${VLLM_XCPU_ENABLE_AF_EP:-0}" = 1 ]; then
-        export VLLM_AF_RUN_ID="afd_$(date +%Y%m%d_%H%M%S)_$$_${RANDOM}"
+    if [ "${VLLM_XCPU_ENABLE_AF_EP:-0}" = 1 ] || [ "${VLLM_XCPU_ENABLE_ENGRAM_DISAGG:-0}" = 1 ]; then
+        # AFD and Engram disaggregation share the run-ID based cleanup: their
+        # extra ranks are not matched by the generic pkill patterns below.
+        if [ "${VLLM_XCPU_ENABLE_AF_EP:-0}" = 1 ]; then
+            export VLLM_AF_RUN_ID="afd_$(date +%Y%m%d_%H%M%S)_$$_${RANDOM}"
+        else
+            export VLLM_AF_RUN_ID="engram_$(date +%Y%m%d_%H%M%S)_$$_${RANDOM}"
+        fi
         AF_CLEANUP_HOSTS=("$(hostname)")
         for host in "${mpi_hosts[@]}"; do
             if [[ " ${AF_CLEANUP_HOSTS[*]} " != *" $host "* ]]; then
@@ -580,7 +588,7 @@ launcher_start_mpi() {
                     mpi_env_args+=(-x "$name") ;;
             esac
         done < <(compgen -e)
-        log_info "AFD run: $VLLM_AF_RUN_ID hostfile=${mpi_hostfile:-local}"
+        log_info "MPMD run: $VLLM_AF_RUN_ID hostfile=${mpi_hostfile:-local}"
     fi
 
     setsid bash "$SCRIPT_DIR/serve/serve_head_only_template.sh" "${ENV_ARGS[@]}" > "$LAUNCH_LOG" 2>&1 &

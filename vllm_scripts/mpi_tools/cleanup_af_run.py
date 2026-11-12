@@ -7,8 +7,8 @@ import sys
 import time
 
 run_id, signal_name = sys.argv[1:]
-if not re.fullmatch(r"afd_[0-9_]+", run_id):
-    raise SystemExit("Invalid AFD run ID")
+if not re.fullmatch(r"(afd|engram)_[0-9_]+", run_id):
+    raise SystemExit("Invalid MPMD run ID")
 sig = {"TERM": signal.SIGTERM, "KILL": signal.SIGKILL, "CHECK": None}[signal_name]
 marker = f"VLLM_AF_RUN_ID={run_id}".encode()
 
