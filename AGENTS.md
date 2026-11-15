@@ -13,6 +13,10 @@
 
 出于开发和调试便利性，这个 vllm 开发套件主要在 x86 CPU 平台开发，但事实上是为其他 NPU 架构服务。主路径上的性能敏感算子应该编写在 torch_xcpu 中，NPU 算子团队会基于其 x86 实现编写和替换。
 
+# 上游契约
+
+插件对 vLLM 的覆盖、重绑和 adapter 都登记在上游契约清单中（`vllm-xcpu-plugin/vllm_xcpu_plugin/models/<category>/upstream.py`）。出现 `[XCPU-UPSTREAM-DRIFT]` / `KernelVersionError`、升级 vLLM、或新增/修改 patch 时，按 `vllm-xcpu-plugin/docs/UPSTREAM_CONTRACTS.md`（skill：`vllm-xcpu-plugin/.claude/skills/upstream-drift`）处理。
+
 # 端到端测试方法
 
 等待测试时，建议设置好合适的超时时间后，直接等待结束即可，不需要反复查看日志的状态。除非需要调试启动的早期状态或获取必要的信息。
@@ -57,3 +61,7 @@ cd torch_mpi_ext && rm build -rf && ./build.sh
 ```
 
 进行不确定的内存错误等 Debug 时，可以设置该选项为 ON，以确定没有越界访存、Launch 区间外的非法访存等。
+
+# 注意事项
+
+- 不要为非预期的情况进行过度防护和保护，本项目在 vLLM 的合理假设下运行，且遇到非预期情况可以直接报错退出。

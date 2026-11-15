@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Real-weight DeepSeek-V4.1-Flash on DP2/TP2 with expert parallelism over
-# mpi_alltoallv_v6 and MoE sequence parallelism: 32 local heads / 4 wo_a groups
-# per TP rank, engram hash heads sharded over TP, experts sharded over DP x TP.
+# mpi_alltoallv_v6, MoE sequence parallelism, eager, and DSpark speculative
+# decoding (the 3 mtp.* draft stages in the target checkpoint, block size 5).
 
 SCRIPT_DIR="$(realpath "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="${SCRIPT_DIR%/presets/*}"
@@ -16,8 +16,7 @@ export VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS="${VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS:
 source "$SCRIPT_DIR/user_env_template.sh"
 unset VLLM_XCPU_QUARK_MXFP4_FORCE_W4A16
 
-export USER_VLLM_EAGER_OR_NOT=""
-export TORCH_XCPU_ENABLE_CHECK=0
+export USER_VLLM_EAGER_OR_NOT="--enforce-eager"
 export USER_VLLM_MODEL="${HOME}/.cache/modelscope/models/deepseek-ai--DeepSeek-V4.1-Flash-1017/snapshots/master"
 export USER_VLLM_DATA_PARALLEL_SIZE=2
 export USER_VLLM_TP_SIZE=2
@@ -34,7 +33,7 @@ _VLLM_OPTIONAL_ARGS+=' --limit-mm-per-prompt {"image":0}'
 _VLLM_OPTIONAL_ARGS+=' --kernel-config {"enable_jit_warmup":false}'
 _VLLM_OPTIONAL_ARGS+=' --tokenizer-mode deepseek_v41'
 _VLLM_OPTIONAL_ARGS+=' --reasoning-parser deepseek_v41'
-_VLLM_OPTIONAL_ARGS+=' --compilation-config {"mode":3}'
+_VLLM_OPTIONAL_ARGS+=' --speculative-config {"method":"dspark","num_speculative_tokens":5}'
 export VLLM_OPTIONAL_ARGS="${_VLLM_OPTIONAL_ARGS}"
 
 preset_name=$(basename "${BASH_SOURCE[0]}" .sh)

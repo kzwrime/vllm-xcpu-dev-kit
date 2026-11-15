@@ -37,19 +37,19 @@ dummy 8 层模型（engram 层 [1, 2]，两表不到 30 MB），全部单机：
 cd vllm_scripts
 export VLLM_TEST_MAX_WAIT=1800
 # A1 + E2（USER_VLLM_ENGRAM_SIZE 可改为 1 / 3）
-./run_vllm_test.sh -e presets/mpi/engram/DeepSeek-V4.1-Flash-dummy-8-layer-lite_dp1_tp1_eager_engram2.sh --multi-test --multi-test-temperature 0
+./run_vllm_test.sh -e presets/serial/engram_disagg_test/DeepSeek-V4.1-Flash-dummy-8-layer-lite_dp1_tp1_eager_engram2.sh --multi-test --multi-test-temperature 0
 # compile（先清理 vllm_cache）
-./run_vllm_test.sh -e presets/mpi/engram/DeepSeek-V4.1-Flash-dummy-8-layer-lite_dp1_tp1_compile_engram2.sh --multi-test --multi-test-temperature 0
+./run_vllm_test.sh -e presets/serial/engram_disagg_test/DeepSeek-V4.1-Flash-dummy-8-layer-lite_dp1_tp1_compile_engram2.sh --multi-test --multi-test-temperature 0
 # A2（dp1 tp2，非 SP：每个 TP rank 请求全部 token）+ E2
-./run_vllm_test.sh -e presets/mpi/engram/DeepSeek-V4.1-Flash-dummy-8-layer-lite_dp1_tp2_eager_engram2.sh --multi-test --multi-test-temperature 0
+./run_vllm_test.sh -e presets/mpi/moe/engram_disagg_test/DeepSeek-V4.1-Flash-dummy-8-layer-lite_dp1_tp2_eager_engram2.sh --multi-test --multi-test-temperature 0
 # 其非拆分 baseline（TP2 的归约次序与 TP1 不同，不能拿 serial TP1 preset 对照）
 ./run_vllm_test.sh -e presets/mpi/dense/DeepSeek-V4.1-Flash-dummy-8-layer-lite_dp1_tp2_eager.sh --multi-test --multi-test-temperature 0
 # A4（dp2 tp2 EP，SP 分片、空分片、空闲 DP rank 的 dummy run）+ E2，eager / compile
 ./run_vllm_test.sh -e presets/mpi/moe/DeepSeek-V4.1-Flash-dummy-8-layer-lite_dp2_tp2_ep_eager_alltoallv_v6_engram2.sh --multi-test --multi-test-temperature 0
 ./run_vllm_test.sh -e presets/mpi/moe/DeepSeek-V4.1-Flash-dummy-8-layer-lite_dp2_tp2_ep_compile_alltoallv_v6_engram2.sh --multi-test --multi-test-temperature 0
 # DSpark 投机解码（草稿模型无 engram；每次 verify 一次目标 forward = 一次交换）+ E2，eager / compile
-./run_vllm_test.sh -e presets/mpi/engram/DeepSeek-V4.1-Flash-dummy-8-layer-lite_dp1_tp1_eager_dspark_5_engram2.sh --multi-test --multi-test-temperature 0
-./run_vllm_test.sh -e presets/mpi/engram/DeepSeek-V4.1-Flash-dummy-8-layer-lite_dp1_tp1_compile_dspark_5_engram2.sh --multi-test --multi-test-temperature 0
+./run_vllm_test.sh -e presets/serial/engram_disagg_test/DeepSeek-V4.1-Flash-dummy-8-layer-lite_dp1_tp1_eager_dspark_5_engram2.sh --multi-test --multi-test-temperature 0
+./run_vllm_test.sh -e presets/serial/engram_disagg_test/DeepSeek-V4.1-Flash-dummy-8-layer-lite_dp1_tp1_compile_dspark_5_engram2.sh --multi-test --multi-test-temperature 0
 ```
 
 判定：
@@ -68,7 +68,7 @@ export VLLM_TEST_MAX_WAIT=1800
 # A4（dp2 tp2 EP，eager）+ E8
 ./run_vllm_test.sh -e presets/mpi/moe/DeepSeek-V4.1-Flash_dp2_tp2_ep_eager_alltoallv_v6_engram8.sh --multi-test --multi-test-temperature 0
 # A1（compile + DSpark）+ E8
-./run_vllm_test.sh -e presets/mpi/engram/DeepSeek-V4.1-Flash_dp1_tp1_compile_dspark_5_engram8.sh --multi-test --multi-test-temperature 0
+./run_vllm_test.sh -e presets/serial/engram_disagg_test/DeepSeek-V4.1-Flash_dp1_tp1_compile_dspark_5_engram8.sh --multi-test --multi-test-temperature 0
 # 保持服务运行并跑正确性脚本（--no-test 只启动服务；脚本结束后 Ctrl-C 结束 launcher。
 # 从脚本里以后台作业启动时 launcher 忽略 SIGINT，要用 kill -TERM <launcher pid>，它 trap TERM 后同样走清理/归档）
 ./run_vllm_test.sh -e <上述 preset> --no-test &

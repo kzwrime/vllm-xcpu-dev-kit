@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # DeepSeek-V4.1-Flash 8-layer dummy, DP1/TP2 over the MPI launcher, eager, Engram tables local
-# (the non-disaggregated baseline of presets/mpi/engram/..._dp1_tp2_eager_engram2.sh).
+# (the non-disaggregated baseline of presets/mpi/moe/engram_disagg_test/..._dp1_tp2_eager_engram2.sh).
 
 SCRIPT_DIR="$(realpath "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="${SCRIPT_DIR%/presets/*}"
