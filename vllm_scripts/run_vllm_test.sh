@@ -48,6 +48,8 @@ usage() {
                      multi test 采样温度，默认 0.7；设为 0 时使用 greedy 解码
   --bench            启动服务后运行 bench
   --spec-decode      启动服务后运行 serve_test/serve_bench_spec_decode.sh
+  --speed-bench      启动服务后运行 serve_test/serve_bench_speed_bench.sh
+  --multi-turn-bench 启动服务后运行 serve_test/serve_bench_multi_turn.sh
   --coverage         启动服务后运行 coverage bench，并 dump shapes
   --profile          在普通、multi、multimodal、sparse-indexer 或长上下文测试前后调用 profiler
   --test-timeout SECONDS
@@ -182,6 +184,16 @@ while [ $# -gt 0 ]; do
             ;;
         --spec-decode)
             TEST_MODE="spec_decode"
+            REQUESTED_BENCH=1
+            shift
+            ;;
+        --speed-bench)
+            TEST_MODE="speed_bench"
+            REQUESTED_BENCH=1
+            shift
+            ;;
+        --multi-turn-bench)
+            TEST_MODE="multi_turn_bench"
             REQUESTED_BENCH=1
             shift
             ;;
@@ -613,6 +625,28 @@ run_test() {
             log_test_exit "Speculative decoding bench" "$TEST_EXIT_CODE"
         fi
         log_info "Bench 日志: $BENCH_LOG"
+    elif [ "$TEST_MODE" = "speed_bench" ]; then
+        log_info "运行 SPEED-Bench..."
+        [ -n "$TEST_TIMEOUT" ] && log_info "SPEED-Bench 最长运行时间: ${TEST_TIMEOUT} 秒"
+        CURRENT_RUN_OUTPUT_LOGS+=("$BENCH_LOG")
+        if run_with_test_timeout bash "$SCRIPT_DIR/serve_test/serve_bench_speed_bench.sh" "${TEST_ENV_ARGS[@]}" > "$BENCH_LOG" 2>&1; then
+            log_success "SPEED-Bench 完成"
+        else
+            TEST_EXIT_CODE=$?
+            log_test_exit "SPEED-Bench" "$TEST_EXIT_CODE"
+        fi
+        log_info "Bench 日志: $BENCH_LOG"
+    elif [ "$TEST_MODE" = "multi_turn_bench" ]; then
+        log_info "运行 multi-turn bench..."
+        [ -n "$TEST_TIMEOUT" ] && log_info "Multi-turn bench 最长运行时间: ${TEST_TIMEOUT} 秒"
+        CURRENT_RUN_OUTPUT_LOGS+=("$BENCH_LOG")
+        if run_with_test_timeout bash "$SCRIPT_DIR/serve_test/serve_bench_multi_turn.sh" "${TEST_ENV_ARGS[@]}" > "$BENCH_LOG" 2>&1; then
+            log_success "Multi-turn bench 完成"
+        else
+            TEST_EXIT_CODE=$?
+            log_test_exit "Multi-turn bench" "$TEST_EXIT_CODE"
+        fi
+        log_info "Bench 日志: $BENCH_LOG"
     elif [ "$TEST_MODE" = "coverage" ]; then
         log_info "运行 coverage bench..."
         [ -n "$TEST_TIMEOUT" ] && log_info "Coverage bench 最长运行时间: ${TEST_TIMEOUT} 秒"
@@ -702,7 +736,7 @@ log_info "日志文件位置:"
 launcher_print_service_locations
 if [ "$TEST_MODE" = "test" ] || [ "$TEST_MODE" = "multi" ] || [ "$TEST_MODE" = "suite" ] || [ "$TEST_MODE" = "multimodal" ] || [ "$TEST_MODE" = "sparse_indexer_accuracy" ] || [ "$TEST_MODE" = "long_context_4k" ] || [ "$TEST_MODE" = "long_context_multi" ]; then
     log_info "  Test:  $TEST_LOG"
-elif [ "$TEST_MODE" = "bench" ] || [ "$TEST_MODE" = "spec_decode" ] || [ "$TEST_MODE" = "coverage" ]; then
+elif [ "$TEST_MODE" = "bench" ] || [ "$TEST_MODE" = "spec_decode" ] || [ "$TEST_MODE" = "speed_bench" ] || [ "$TEST_MODE" = "multi_turn_bench" ] || [ "$TEST_MODE" = "coverage" ]; then
     log_info "  Bench: $BENCH_LOG"
 fi
 log_info "  Cleanup: $MPI_CLEANUP_LOG"

@@ -1,1 +1,6 @@
 long_context_results
+bench_results
+multi_turn_results
+data/speed_bench
+data/speed_bench_raw
+data/speed_bench*.tar.gz
