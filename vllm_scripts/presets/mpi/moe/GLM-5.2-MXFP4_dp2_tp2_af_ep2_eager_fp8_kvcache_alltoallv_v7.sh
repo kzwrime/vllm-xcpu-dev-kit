@@ -34,7 +34,7 @@ export USER_VLLM_MPI_SIZE=$((USER_VLLM_DATA_PARALLEL_SIZE * USER_VLLM_MPC_SIZE +
 export VLLM_MPI_WORKER_TEMPLATE="$SCRIPT_DIR/serve/serve_afd_mp_rpc_all_mpi_template.sh"
 
 _VLLM_OPTIONAL_ARGS+=" --all2all-backend mpi_alltoallv_v7"
-_VLLM_OPTIONAL_ARGS+=" --kv-cache-dtype fp8"
+_VLLM_OPTIONAL_ARGS+=" --kv-cache-dtype ${USER_VLLM_KV_CACHE_DTYPE:-fp8}"
 _VLLM_OPTIONAL_ARGS+=' --kernel-config {"enable_jit_warmup":false}'
 _VLLM_OPTIONAL_ARGS+=' --tool-call-parser glm47'
 _VLLM_OPTIONAL_ARGS+=' --enable-auto-tool-choice'
@@ -43,4 +43,4 @@ export VLLM_OPTIONAL_ARGS="${_VLLM_OPTIONAL_ARGS}"
 
 preset_name=$(basename "${BASH_SOURCE[0]}" .sh)
 preset_dir=$(basename "$(dirname "${BASH_SOURCE[0]}")")
-echo "Preset: ${preset_dir}/${preset_name} | real MXFP4 weights, BF16 activations, FP8 KV cache"
+echo "Preset: ${preset_dir}/${preset_name} | real MXFP4 weights, BF16 activations, ${USER_VLLM_KV_CACHE_DTYPE:-FP8} KV cache"

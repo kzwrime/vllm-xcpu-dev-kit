@@ -39,7 +39,7 @@ export VLLM_MPI_RUN_ARGS="${VLLM_MPI_RUN_ARGS:---allow-run-as-root --bind-to non
 
 # Forwarded to F by serve/af_model_load_args.sh so both sides use V8.
 _VLLM_OPTIONAL_ARGS+=" --all2all-backend mpi_alltoallv_v8"
-_VLLM_OPTIONAL_ARGS+=" --kv-cache-dtype fp8"
+_VLLM_OPTIONAL_ARGS+=" --kv-cache-dtype ${USER_VLLM_KV_CACHE_DTYPE:-fp8}"
 _VLLM_OPTIONAL_ARGS+=' --kernel-config {"enable_jit_warmup":false}'
 _VLLM_OPTIONAL_ARGS+=' --tool-call-parser glm47'
 _VLLM_OPTIONAL_ARGS+=' --enable-auto-tool-choice'
@@ -48,4 +48,4 @@ export VLLM_OPTIONAL_ARGS="${_VLLM_OPTIONAL_ARGS}"
 
 preset_name=$(basename "${BASH_SOURCE[0]}" .sh)
 preset_dir=$(basename "$(dirname "${BASH_SOURCE[0]}")")
-echo "AF-EP preset: ${preset_dir}/${preset_name} A=1 F=${USER_VLLM_EP_SIZE} | real MXFP4 weights, BF16 activations, FP8 KV cache"
+echo "AF-EP preset: ${preset_dir}/${preset_name} A=1 F=${USER_VLLM_EP_SIZE} | real MXFP4 weights, BF16 activations, ${USER_VLLM_KV_CACHE_DTYPE:-FP8} KV cache"

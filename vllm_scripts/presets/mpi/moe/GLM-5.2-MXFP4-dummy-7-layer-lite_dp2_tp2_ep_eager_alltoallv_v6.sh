@@ -20,6 +20,9 @@ export VLLM_CPU_USE_MPI=1
 
 _VLLM_OPTIONAL_ARGS+=" --all2all-backend mpi_alltoallv_v6"
 _VLLM_OPTIONAL_ARGS+=" --load-format dummy"
+if [ -n "${USER_VLLM_KV_CACHE_DTYPE:-}" ]; then
+    _VLLM_OPTIONAL_ARGS+=" --kv-cache-dtype ${USER_VLLM_KV_CACHE_DTYPE}"
+fi
 _VLLM_OPTIONAL_ARGS+=' --kernel-config {"enable_jit_warmup":false}'
 _VLLM_OPTIONAL_ARGS+=' --tool-call-parser glm47 --enable-auto-tool-choice'
 _VLLM_OPTIONAL_ARGS+=' --reasoning-parser glm45'

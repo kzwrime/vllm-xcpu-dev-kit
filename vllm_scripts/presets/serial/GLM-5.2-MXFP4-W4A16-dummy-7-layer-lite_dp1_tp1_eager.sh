@@ -15,6 +15,9 @@ export USER_VLLM_MPC_SIZE=$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE))
 
 _VLLM_OPTIONAL_ARGS+=" --all2all-backend all_to_all_single"
 _VLLM_OPTIONAL_ARGS+=" --load-format dummy"
+if [ -n "${USER_VLLM_KV_CACHE_DTYPE:-}" ]; then
+    _VLLM_OPTIONAL_ARGS+=" --kv-cache-dtype ${USER_VLLM_KV_CACHE_DTYPE}"
+fi
 _VLLM_OPTIONAL_ARGS+=' --kernel-config {"enable_jit_warmup":false}'
 _VLLM_OPTIONAL_ARGS+=' --tool-call-parser glm47'
 _VLLM_OPTIONAL_ARGS+=' --enable-auto-tool-choice'

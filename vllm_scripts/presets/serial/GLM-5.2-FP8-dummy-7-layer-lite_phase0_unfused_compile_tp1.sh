@@ -32,7 +32,7 @@ export VLLM_XCPU_FUSED_MLA=0
 export VLLM_XCPU_FUSED_MLA_VPROJ=0
 
 _VLLM_OPTIONAL_ARGS+=" --load-format dummy"
-_VLLM_OPTIONAL_ARGS+=" --kv-cache-dtype fp8"
+_VLLM_OPTIONAL_ARGS+=" --kv-cache-dtype ${USER_VLLM_KV_CACHE_DTYPE:-fp8}"
 # GLM-5.2/DSv4 在 XCPU 上走自有 indexer 路径,不需要 triton JIT warmup
 # (与 kit 内其他 GLM-5.2 preset 一致);开 warmup 会触发未适配的
 # PackSeq/UnpackSeq kernel 注册,fake-triton adapter 会给出本提示。

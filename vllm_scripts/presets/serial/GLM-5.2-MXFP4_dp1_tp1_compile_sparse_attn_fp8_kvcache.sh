@@ -28,7 +28,7 @@ export USER_VLLM_MPC_SIZE=$((USER_VLLM_TP_SIZE * USER_VLLM_PP_SIZE))
 
 _VLLM_OPTIONAL_ARGS+=' --compilation-config {"mode":3}'
 _VLLM_OPTIONAL_ARGS+=" --all2all-backend all_to_all_single"
-_VLLM_OPTIONAL_ARGS+=" --kv-cache-dtype fp8"
+_VLLM_OPTIONAL_ARGS+=" --kv-cache-dtype ${USER_VLLM_KV_CACHE_DTYPE:-fp8}"
 _VLLM_OPTIONAL_ARGS+=' --kernel-config {"enable_jit_warmup":false}'
 _VLLM_OPTIONAL_ARGS+=' --tool-call-parser glm47'
 _VLLM_OPTIONAL_ARGS+=' --enable-auto-tool-choice'
@@ -37,4 +37,4 @@ export VLLM_OPTIONAL_ARGS="${_VLLM_OPTIONAL_ARGS}"
 
 preset_name=$(basename "${BASH_SOURCE[0]}" .sh)
 preset_dir=$(basename "$(dirname "${BASH_SOURCE[0]}")")
-echo "Preset: ${preset_dir}/${preset_name} | real MXFP4 weights, BF16 activations, FP8 KV cache"
+echo "Preset: ${preset_dir}/${preset_name} | real MXFP4 weights, BF16 activations, ${USER_VLLM_KV_CACHE_DTYPE:-FP8} KV cache"

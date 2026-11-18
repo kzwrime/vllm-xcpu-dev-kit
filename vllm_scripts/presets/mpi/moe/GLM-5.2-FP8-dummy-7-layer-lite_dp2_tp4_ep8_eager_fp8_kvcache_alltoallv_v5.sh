@@ -46,7 +46,7 @@ unset OMP_THREAD_LIMIT
 
 _VLLM_OPTIONAL_ARGS+=" --all2all-backend mpi_alltoallv_v5"
 _VLLM_OPTIONAL_ARGS+=" --load-format dummy"
-_VLLM_OPTIONAL_ARGS+=" --kv-cache-dtype fp8"
+_VLLM_OPTIONAL_ARGS+=" --kv-cache-dtype ${USER_VLLM_KV_CACHE_DTYPE:-fp8}"
 _VLLM_OPTIONAL_ARGS+=' --kernel-config {"enable_jit_warmup":false}'
 _VLLM_OPTIONAL_ARGS+=' --tool-call-parser glm47'
 _VLLM_OPTIONAL_ARGS+=' --enable-auto-tool-choice'

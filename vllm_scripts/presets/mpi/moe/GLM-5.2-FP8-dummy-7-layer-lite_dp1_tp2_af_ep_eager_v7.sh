@@ -24,6 +24,9 @@ export USER_VLLM_MPI_SIZE=$((USER_VLLM_DATA_PARALLEL_SIZE * USER_VLLM_MPC_SIZE +
 export VLLM_MPI_WORKER_TEMPLATE="$SCRIPT_DIR/serve/serve_afd_mp_rpc_all_mpi_template.sh"
 
 _VLLM_OPTIONAL_ARGS+=" --all2all-backend mpi_alltoallv_v7 --load-format dummy"
+if [ -n "${USER_VLLM_KV_CACHE_DTYPE:-}" ]; then
+    _VLLM_OPTIONAL_ARGS+=" --kv-cache-dtype ${USER_VLLM_KV_CACHE_DTYPE}"
+fi
 _VLLM_OPTIONAL_ARGS+=' --kernel-config {"enable_jit_warmup":false}'
 _VLLM_OPTIONAL_ARGS+=' --tool-call-parser glm47 --enable-auto-tool-choice'
 _VLLM_OPTIONAL_ARGS+=' --reasoning-parser glm45'

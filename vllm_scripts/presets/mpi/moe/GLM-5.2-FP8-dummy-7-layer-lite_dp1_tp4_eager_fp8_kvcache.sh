@@ -28,7 +28,7 @@ export VLLM_CPU_USE_MPI=1
 
 _VLLM_OPTIONAL_ARGS+=" --all2all-backend all_to_all_single"
 _VLLM_OPTIONAL_ARGS+=" --load-format dummy"
-_VLLM_OPTIONAL_ARGS+=" --kv-cache-dtype fp8"
+_VLLM_OPTIONAL_ARGS+=" --kv-cache-dtype ${USER_VLLM_KV_CACHE_DTYPE:-fp8}"
 _VLLM_OPTIONAL_ARGS+=' --kernel-config {"enable_jit_warmup":false}'
 _VLLM_OPTIONAL_ARGS+=' --tool-call-parser glm47'
 _VLLM_OPTIONAL_ARGS+=' --enable-auto-tool-choice'
@@ -37,4 +37,4 @@ export VLLM_OPTIONAL_ARGS="${_VLLM_OPTIONAL_ARGS}"
 
 preset_name=$(basename "${BASH_SOURCE[0]}" .sh)
 preset_dir=$(basename "$(dirname "${BASH_SOURCE[0]}")")
-echo "Preset: ${preset_dir}/${preset_name} | dummy 7-layer GLM-5.2 FP8, TP4, FP8 KV cache, fused_mla_qnorm_qb_uk=${VLLM_XCPU_FUSED_MLA_QNORM_QB_UK:-0}"
+echo "Preset: ${preset_dir}/${preset_name} | dummy 7-layer GLM-5.2 FP8, TP4, ${USER_VLLM_KV_CACHE_DTYPE:-FP8} KV cache, fused_mla_qnorm_qb_uk=${VLLM_XCPU_FUSED_MLA_QNORM_QB_UK:-0}"
