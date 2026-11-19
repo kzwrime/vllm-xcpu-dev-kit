@@ -370,9 +370,7 @@ TCP transfer engine 拉取 KV cache。
 
 ### Mooncake 流式响应
 
-Mooncake 流式响应中，proxy 不构造首 token SSE chunk，而是把 decode
-实例返回的 SSE 数据原样转发。prefill 请求仍以后台非流式任务运行；proxy
-会在 decode 完成后等待 prefill 任务收尾并记录 upstream 错误。
+Mooncake 流式响应中，proxy 先等待 prefill 非流式请求完成（确认 producer 侧已生成并保留 KV block），再将请求转发给 decode 实例，并把 decode 实例返回的 SSE 数据原样转发（不构造首 token SSE chunk）。
 
 ### Mooncake transfer 验证
 

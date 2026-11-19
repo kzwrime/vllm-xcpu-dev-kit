@@ -9,7 +9,7 @@ import uuid
 from urllib.parse import urlparse
 from typing import Any
 
-from aiohttp import ClientSession, ClientTimeout, web
+from aiohttp import ClientSession, ClientTimeout, TCPConnector, web
 
 
 LOGGER = logging.getLogger("pd_proxy")
@@ -319,7 +319,6 @@ async def _handle_mooncake_generation(request: web.Request) -> web.Response:
     request_id = str(uuid.uuid4())
     stream = bool(payload.get("stream"))
     transfer_id = f"xfer-{request_id}"
-    decode_url = _next_url(request, "decode_urls", "decode_index")
     session = request.app["client_session"]
 
     await _ensure_mooncake_prefill_entries(request, session)
@@ -342,16 +341,15 @@ async def _handle_mooncake_generation(request: web.Request) -> web.Response:
 
     LOGGER.info("Mooncake prefill url=%s dp=%s transfer_id=%s",
                 prefill_entry["url"], prefill_entry["dp_rank"], transfer_id)
-    prefill_task = asyncio.create_task(
-        _post_and_close(
-            session,
-            prefill_entry["url"],
-            request.path,
-            prefill_payload,
-            prefill_headers,
-        )
+    await _post_and_close(
+        session,
+        prefill_entry["url"],
+        request.path,
+        prefill_payload,
+        prefill_headers,
     )
 
+    decode_url = _next_url(request, "decode_urls", "decode_index")
     decode_payload = copy.deepcopy(payload)
     decode_payload["kv_transfer_params"] = {
         "do_remote_decode": False,
@@ -364,37 +362,26 @@ async def _handle_mooncake_generation(request: web.Request) -> web.Response:
 
     LOGGER.info("Mooncake decode url=%s transfer_id=%s",
                 decode_url, transfer_id)
-    try:
-        if stream:
-            return await _stream_mooncake_decode(
-                session, request, decode_url, decode_payload, decode_headers
-            )
-
-        decode_response = await _post_json(
-            session,
-            decode_url,
-            request.path,
-            decode_payload,
-            headers=decode_headers,
+    if stream:
+        return await _stream_mooncake_decode(
+            session, request, decode_url, decode_payload, decode_headers
         )
-        return web.json_response(decode_response)
-    finally:
-        if prefill_task.done():
-            try:
-                await prefill_task
-            except Exception as exc:
-                LOGGER.error("Mooncake prefill task failed: %s", exc)
-        else:
-            try:
-                await asyncio.wait_for(asyncio.shield(prefill_task), timeout=30)
-            except asyncio.TimeoutError:
-                LOGGER.warning("Mooncake prefill task still running after decode")
-            except Exception as exc:
-                LOGGER.error("Mooncake prefill task failed: %s", exc)
+
+    decode_response = await _post_json(
+        session,
+        decode_url,
+        request.path,
+        decode_payload,
+        headers=decode_headers,
+    )
+    return web.json_response(decode_response)
 
 
 async def _create_client_session(app: web.Application) -> None:
-    app["client_session"] = ClientSession(timeout=app["timeout"])
+    app["client_session"] = ClientSession(
+        timeout=app["timeout"],
+        connector=TCPConnector(limit=0, limit_per_host=0),
+    )
 
 
 async def _close_client_session(app: web.Application) -> None:
@@ -410,36 +397,36 @@ async def _handle_generation(request: web.Request) -> web.Response:
     stream = bool(payload.get("stream"))
     prefill_url = _next_url(request, "prefill_urls", "prefill_index")
     decode_url = _next_url(request, "decode_urls", "decode_index")
+    session = request.app["client_session"]
 
     prefill_payload = copy.deepcopy(payload)
     _set_stream(prefill_payload, False)
     _set_max_tokens(prefill_payload, 1)
 
-    async with ClientSession(timeout=request.app["timeout"]) as session:
-        LOGGER.info("prefill request url=%s path=%s", prefill_url, request.path)
-        prefill_response = await _post_json(
-            session, prefill_url, request.path, prefill_payload
+    LOGGER.info("prefill request url=%s path=%s", prefill_url, request.path)
+    prefill_response = await _post_json(
+        session, prefill_url, request.path, prefill_payload
+    )
+    first_text = _choice_text(prefill_response)
+    LOGGER.info("prefill produced %r", first_text)
+
+    if request.path.endswith("/chat/completions"):
+        decode_payload = _chat_decode_payload(payload, first_text)
+    else:
+        decode_payload = _completion_decode_payload(payload, first_text)
+
+    _set_max_tokens(decode_payload, max(1, max_tokens - 1))
+    _set_stream(decode_payload, stream)
+
+    LOGGER.info("decode request url=%s path=%s", decode_url, request.path)
+    if stream:
+        return await _stream_decode(
+            session, request, decode_url, decode_payload, first_text
         )
-        first_text = _choice_text(prefill_response)
-        LOGGER.info("prefill produced %r", first_text)
 
-        if request.path.endswith("/chat/completions"):
-            decode_payload = _chat_decode_payload(payload, first_text)
-        else:
-            decode_payload = _completion_decode_payload(payload, first_text)
-
-        _set_max_tokens(decode_payload, max(1, max_tokens - 1))
-        _set_stream(decode_payload, stream)
-
-        LOGGER.info("decode request url=%s path=%s", decode_url, request.path)
-        if stream:
-            return await _stream_decode(
-                session, request, decode_url, decode_payload, first_text
-            )
-
-        decode_response = await _post_json(
-            session, decode_url, request.path, decode_payload
-        )
+    decode_response = await _post_json(
+        session, decode_url, request.path, decode_payload
+    )
 
     return web.json_response(_prepend_choice_text(decode_response, first_text))
 
