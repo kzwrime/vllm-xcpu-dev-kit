@@ -408,6 +408,11 @@ launcher_cleanup_processes() {
             launcher_cleanup_process_group "$pid"
         done
         sleep 3
+        for pid in "${PIDS[@]}"; do
+            if kill -0 "$pid" 2>/dev/null; then
+                kill -9 -- -"$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null || true
+            fi
+        done
     fi
 }
 
@@ -643,8 +648,8 @@ launcher_wait_for_api() {
 
 launcher_print_service_locations() {
     if [ "$DISAGG_PREFILL" -eq 1 ]; then
-        log_info "  OpenAI API: http://127.0.0.1:${PD_PROXY_PORT}"
-        log_info "  手动测试 preset: $PD_ROOT/proxy.sh"
+        log_info "  OpenAI API: http://127.0.0.1:${PD_ROUTER_PORT:-$PD_PROXY_PORT}"
+        log_info "  手动测试 preset: $PD_ROOT/router.sh"
         pd_print_log_locations
     else
         log_info "  OpenAI API: http://127.0.0.1:${USER_VLLM_PORT}"

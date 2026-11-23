@@ -328,7 +328,7 @@ python ./serve_test/test_multimodal.py \
 
 ## P/D 分离模式展开
 
-统一入口：
+统一入口（默认通过 `vllm-router` + `MooncakeConnector` 运行）：
 
 ```bash
 ./run_vllm_test.sh --pd -e presets/mpi/moe/Qwen3-30B-A3B_dp2_tp2_ep_eager_alltoallv_v2.sh --multi-test
@@ -337,9 +337,9 @@ python ./serve_test/test_multimodal.py \
 P/D 分离不是单个 vLLM 进程，而是：
 
 ```text
-prefill vLLM instance(s)
-decode  vLLM instance(s)
-local P/D proxy
+prefill vLLM instance(s)  (Mooncake kv_producer + BootstrapServer)
+decode  vLLM instance(s)  (Mooncake kv_consumer)
+vllm-router               (--vllm-pd-disaggregation --kv-connector mooncake)
 test client
 ```
 
@@ -348,11 +348,11 @@ test client
 ```text
 prefill0.sh
 decode0.sh
-proxy.sh
+router.sh
+proxy.sh -> router.sh
 prefill0/
 decode0/
-proxy/
-example_connector_storage/
+router/
 ```
 
 每个 prefill/decode overlay preset 都会：
@@ -364,20 +364,16 @@ export USER_VLLM_DATA_PARALLEL_RPC_PORT=<role-dp-rpc-port>
 export VLLM_MPI_COORD_PORT=<role-mpi-coord-port>
 export VLLM_MPI_ENV_EXPORT_FILE=<role-dir>/vllm_mpi_env_server.sh
 export VLLM_MP_RPC_READY_PORT_BASE=<role-ready-port-base>
-export VLLM_OPTIONAL_ARGS="${VLLM_OPTIONAL_ARGS} --kv-transfer-config <ExampleConnector-config> --no-disable-hybrid-kv-cache-manager"
+export MOONCAKE_PROTOCOL=tcp
+export VLLM_MOONCAKE_BOOTSTRAP_PORT=<prefill-bootstrap-port>   # 仅 prefill
+export VLLM_OPTIONAL_ARGS="${VLLM_OPTIONAL_ARGS} --kv-transfer-config <Mooncake-or-MultiConnector-config> --no-disable-hybrid-kv-cache-manager"
 ```
 
-注意：`VLLM_PD_ROLE`、`VLLM_PD_ROLE_INDEX` 这类变量没有实际消费者，不应作为功能依赖。P/D 的关键配置是 `--kv-transfer-config` 中的 `shared_storage_path`。
+注意：`VLLM_PD_ROLE`、`VLLM_PD_ROLE_INDEX` 这类变量没有实际消费者，不应作为功能依赖。P/D 的核心配置是 `--kv-transfer-config` 与 Prefill 侧 `VLLM_MOONCAKE_BOOTSTRAP_PORT`。
 
-LMCache 作为 P/D KV backend 的调研和分层落地建议见
-`PD_LMCACHE_INVESTIGATION.md`。当前默认 backend 仍是 `ExampleConnector`。
-Mooncake 直接 P/D 传输路线见 `PD_MOONCAKE_INVESTIGATION.md`。
-Mooncake CPU/SSD 持久化和 standalone store 拓扑见
-`PD_MOONCAKE_PERSISTENCE.md`。该文档的“配置出处”部分列出了官方 vLLM
-`KVTransferConfig` API、MooncakeStoreConnector guide、上游
-`deps/vllm-main` 实现和 Mooncake master/client 源码对应关系。
+设计细节与全部可调环境变量见 [`PD_PROXY_DESIGN.md`](PD_PROXY_DESIGN.md)。本地 `vllm/` 已完整包含 `MooncakeConnector` 与 `MooncakeStoreConnector`（`vllm/distributed/kv_transfer/kv_connector/v1/mooncake/`）。
 
-使用 Mooncake non-CUDA/TCP backend：
+使用默认 `MooncakeConnector`（P2P TCP）：
 
 ```bash
 USER_VLLM_PD_KV_BACKEND=mooncake \
@@ -385,16 +381,14 @@ USER_VLLM_PD_MOONCAKE_PROTOCOL=tcp \
 ./run_vllm_test.sh --pd -e <preset.sh>
 ```
 
-注意：这个入口使用的是 `MooncakeConnector`，只验证 prefill/decode 之间的
-点对点 KV transfer。它不启动 Mooncake Store，也不提供纯 CPU 内存池或 SSD
-持久化。要让 prefill/decode 以外的节点作为 CPU/SSD KV pool，需要
-`MooncakeStoreConnector` + `mooncake_master` + 外部 `mooncake_client`
-的 `standalone-store` 拓扑；当前本地 `vllm/` 尚未移植该 connector。
+使用 `MultiConnector`（`MooncakeConnector` P2P + `MooncakeStoreConnector` 共享 DRAM/SSD Pool，需先启动 Mooncake Master/Client 并准备 `MOONCAKE_CONFIG_PATH`）：
 
-当前已通过 `Qwen3-0.6B` 单请求、`Qwen3-0.6B --multi-test` 并发请求、
-以及 `Qwen3-30B-A3B dp2/tp2/ep` MPI/MoE 单请求。`Qwen3.5-0.8B`
-hybrid full-attention + linear-attention 仍需要 group-aware Mooncake metadata，
-不能只把 HMA 多组 block ids 展平。
+```bash
+MOONCAKE_CONFIG_PATH=/path/to/mooncake_config.json \
+USER_VLLM_PD_KV_BACKEND=mooncake_multi \
+USER_VLLM_PD_MOONCAKE_PROTOCOL=rdma \
+./run_vllm_test.sh --pd -e <preset.sh>
+```
 
 ### P/D + mpi 的手工展开
 
@@ -403,7 +397,7 @@ hybrid full-attention + linear-attention 仍需要 group-aware Mooncake metadata
 ```text
 logs/pd/<run-id>/prefill0.sh
 logs/pd/<run-id>/decode0.sh
-logs/pd/<run-id>/proxy.sh
+logs/pd/<run-id>/router.sh
 ```
 
 则可以拆成多个终端：
@@ -437,18 +431,21 @@ mpirun --bind-to none --map-by slot -np 4 \
 ```
 
 ```bash
-# 终端 5：P/D proxy
-cd vllm_scripts
-python ./serve_test/pd_proxy.py \
-  --port <proxy-port> \
-  --prefill-url http://127.0.0.1:<prefill-port> \
-  --decode-url http://127.0.0.1:<decode-port>
+# 终端 5：vllm-router
+vllm-router \
+  --host 127.0.0.1 \
+  --port <router-port> \
+  --vllm-pd-disaggregation \
+  --kv-connector mooncake \
+  --policy cache_aware \
+  --prefill http://127.0.0.1:<prefill-port> <prefill-bootstrap-port> \
+  --decode http://127.0.0.1:<decode-port>
 ```
 
 ```bash
-# 终端 6：测试 proxy
+# 终端 6：测试 router
 cd vllm_scripts
-./serve_test/serve_test_template.sh -e logs/pd/<run-id>/proxy.sh
+./serve_test/serve_test_template.sh -e logs/pd/<run-id>/router.sh
 ```
 
 ## N P x M D 拓扑
@@ -460,13 +457,19 @@ USER_VLLM_PD_PREFILL_COUNT=2 USER_VLLM_PD_DECODE_COUNT=1 \
 ./run_vllm_test.sh --pd --multi-test -e <preset.sh>
 ```
 
-proxy 接收逗号分隔 URL，并做 round-robin：
+手工启动 `vllm-router` 时，为每个 Prefill 实例重复传入 `--prefill <URL> <BOOTSTRAP_PORT>`，为每个 Decode 实例重复传入 `--decode <URL>`（`power_of_two` 仅当对应池实例数 >= 2 时可用）：
 
 ```bash
-python ./serve_test/pd_proxy.py \
+vllm-router \
+  --host 127.0.0.1 \
   --port 14800 \
-  --prefill-url http://127.0.0.1:14900,http://127.0.0.1:15000 \
-  --decode-url http://127.0.0.1:15100
+  --vllm-pd-disaggregation \
+  --kv-connector mooncake \
+  --prefill-policy cache_aware \
+  --decode-policy cache_aware \
+  --prefill http://127.0.0.1:14900 18998 \
+  --prefill http://127.0.0.1:15000 19098 \
+  --decode http://127.0.0.1:15100
 ```
 
 ## 日志位置
@@ -495,7 +498,7 @@ logs/pd/<run-id>/prefill0/launch.log
 logs/pd/<run-id>/prefill0/logs/
 logs/pd/<run-id>/decode0/launch.log
 logs/pd/<run-id>/decode0/logs/
-logs/pd/<run-id>/proxy/proxy.log
+logs/pd/<run-id>/router/router.log
 logs/test.log
 ```
 
@@ -513,5 +516,5 @@ logs/failed/<run-id>/
 3. 如果是 P/D 问题，先用 `--pd --no-test` 生成 overlay preset，再按 P/D 展开命令手工启动。
 4. 非 P/D 端口冲突默认会提前失败；需要自动避让时加 `--auto-port`，并以启动日志打印的 OpenAI API 端口为准。
 5. 如果测试返回 404 model not found，先确认请求命中的端口是否是本次启动的端口，再看 `/v1/models` 中的模型 id。
-6. P/D 会为 HTTP、DP RPC、MPI coord、MP RPC ready 分别分配端口，端口问题优先看 `logs/pd/<run-id>/` 下生成的 overlay preset 和启动日志。
-7. decode 侧是否命中外部 KV cache，以 decode 日志中的 `External Cache Hit` 为准。
+6. P/D 会为 HTTP、DP RPC、MPI coord、MP RPC ready、Bootstrap 与 Prometheus 分别分配端口，端口问题优先看 `logs/pd/<run-id>/` 下生成的 overlay preset 和启动日志。
+7. Mooncake P/D KV transfer 触发情况以 prefill/decode 日志中的 `Receiving Mooncake KV` / `pulling kv_caches` / `MooncakeXferMetadata` 为准；路由行为看 `logs/pd/<run-id>/router/router.log`。

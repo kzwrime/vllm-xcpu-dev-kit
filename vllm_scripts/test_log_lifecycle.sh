@@ -11,7 +11,13 @@ archive_run_logs() {
     local root="$1" label="$2"
     local archive_dir="$root/${LOG_DIR##*/}"
     if [ "${DISAGG_PREFILL:-0}" -eq 1 ] && [ -d "${PD_ROOT:-}" ]; then
-        cp -a "$PD_ROOT" "$LOG_DIR/pd" || return "$?"
+        case "$(realpath -m "$PD_ROOT")/" in
+            "$(realpath -m "$LOG_DIR")/"*) ;;
+            *)
+                mkdir -p "$LOG_DIR/pd" || return "$?"
+                cp -a "$PD_ROOT" "$LOG_DIR/pd" || return "$?"
+                ;;
+        esac
     fi
     cp -a "$LOG_DIR" "$archive_dir" || return "$?"
     log_info "运行日志保留在: $LOG_DIR"
