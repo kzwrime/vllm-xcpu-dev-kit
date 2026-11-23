@@ -11,6 +11,10 @@
   - 8 层 dummy：`models/deepseek-ai/DeepSeek-V4.1-Flash-dummy-8-layer-lite`，覆盖 SWA、ratio-2/ratio-1 的 kv/index 源与消费层、candidate 源层、Engram 层和 3 层 DSpark；只用于启动、路径与一致性检查，不判断精度。preset 为 `presets/serial/DeepSeek-V4.1-Flash-dummy-8-layer-lite_dp1_tp1_eager.sh`。
 - 每个 eager preset 都有同名 `_compile` 版本（serial、dspark）。compile 调试前先移走 `vllm_scripts/vllm_cache/torch_compile_cache`；源层段与 replay 段各生成一份 AOT 产物，再次启动直接加载。
 - DSpark preset 位于 `presets/serial/dspark/`（`--speculative-config {"method":"dspark","num_speculative_tokens":5}`），草稿层权重随目标 checkpoint 的 `mtp.*` 提供。
+- DSpark Draft Markov 采样运行开关（详见 `torch_xcpu/docs/deepseek_v41/dspark_markov_sample.md`）：
+  - `VLLM_XCPU_DSPARK_MARKOV_DTYPE=bf16|fp8|int8`（默认 `bf16`）：设为 `fp8` / `int8` 时在加载期按 `[32, 32]` OCP UE8M0 在线量化并预打包 `markov_w2`；
+  - `VLLM_XCPU_DSPARK_MARKOV_FUSED=0|1`（默认 `1`）：设 `0` 手动关闭融合并回退到逐算子循环；
+  - `TORCH_XCPU_DSPARK_MARKOV_SAMPLE{,_FP8,_INT8}_IMPL=A0|A1`（默认 `A0`，兼容 32/64 线程 mHC；单算子测试或 `>= 96` 线程环境可设 `A1` 启用 96-PE Mega-Kernel）。
 - 精度约定：权重与 KV 存储格式对齐 NVIDIA（MXFP8 32x32 dense、MXFP4 experts；SWA 528 B MXFP8、压缩 288 B NVFP4、indexer 68 B MXFP4），计算一律 BF16 激活 + FP32 累加。
 
 ## 执行
@@ -47,6 +51,8 @@ TORCH_XCPU_DEEPSEEK_V41_SPARSE_MLA_IMPL=A0 TORCH_XCPU_DEEPSEEK_V41_INDEXER_TOPK_
   OMP_NUM_THREADS=64 TORCH_XCPU_CUSTOM_OP_TEST_DEVICES=mcpu pytest -q \
   ops/custom_ops/deepseek_v41/test_sparse_mla.py ops/custom_ops/deepseek_v41/test_indexer_topk.py
 pytest -q ops/gemm_ops/test_fp8_linear.py -k mxfp8
+# DSpark Markov 5 步融合算子（默认 A0；加 *_IMPL=A1 且 OMP_NUM_THREADS=96 测 Mega-Kernel）
+TORCH_XCPU_CUSTOM_OP_TEST_DEVICES=mcpu pytest -q ops/custom_ops/test_dspark_markov_sample.py
 ```
 
 ## 通过标准
