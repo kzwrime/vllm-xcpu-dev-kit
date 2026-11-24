@@ -15,5 +15,6 @@
 - [DeepSeek-V4.1-Flash：串行 eager 与 DSpark](11-dsv41-serial.md)
 - [DeepSeek-V4.1-Flash：DP2/TP2 EP（mpi_alltoallv_v6）](12-dsv41-dp2tp2-ep.md)
 - [DeepSeek-V4.1-Flash：Engram 拆分（独立 Engram rank）](13-dsv41-engram-disagg.md)
+- [DeepSeek-V4.1-Flash：EngramParallel（EP 域全量 rank 2D 分片）](14-dsv41-engram-parallel.md)
 
 环境构建与测试约定见 [AGENTS.md](../../AGENTS.md)。
