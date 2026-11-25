@@ -200,20 +200,53 @@ def quantize_block_int8_ue8m0(
     return weight_int8, scale_u8
 
 
+def _infer_power_of_two_block_dim(dim: int, s_dim: int) -> int:
+    if s_dim <= 0 or dim <= 0:
+        raise ValueError(f"Invalid dimensions dim={dim}, s_dim={s_dim}")
+    if dim % s_dim == 0:
+        return dim // s_dim
+    # s_dim > 1 and dim % s_dim != 0: valid block size b satisfies ceil(dim / b) == s_dim,
+    # i.e. ceil(dim / s_dim) <= b <= (dim - 1) // (s_dim - 1).
+    lo = math.ceil(dim / s_dim)
+    hi = (dim - 1) // (s_dim - 1)
+    pow2_candidates = [
+        1 << exp for exp in range(1, 16) if lo <= (1 << exp) <= hi
+    ]
+    if len(pow2_candidates) == 1:
+        return pow2_candidates[0]
+    raise ValueError(
+        f"Cannot unambiguously infer FP8 block size from weight dim={dim} and "
+        f"scale dim={s_dim} (valid range [{lo}, {hi}]); pass src_block_size explicitly"
+    )
+
+
 def dequantize_fp8_block_weight(
-    weight_fp8: torch.Tensor, scale_inv: torch.Tensor
+    weight_fp8: torch.Tensor,
+    scale_inv: torch.Tensor,
+    src_block_size: tuple[int, int] | None = None,
 ) -> torch.Tensor:
-    """Dequantize a 2D FP8 weight and block-wise float32 weight_scale_inv to FP32."""
+    """Dequantize a 2D FP8 weight and block-wise weight_scale_inv to FP32."""
     n, k = weight_fp8.shape
     sn, sk = scale_inv.shape
     w_f32 = weight_fp8.float()
-    s_f32 = scale_inv.float()
-    if n % sn == 0 and k % sk == 0:
-        bn = n // sn
-        bk = k // sk
+    if scale_inv.dtype in (torch.uint8, torch.float8_e8m0fnu):
+        s_f32 = scale_inv.view(torch.float8_e8m0fnu).float()
+    else:
+        s_f32 = scale_inv.float()
+
+    if src_block_size is not None:
+        bn, bk = int(src_block_size[0]), int(src_block_size[1])
+        if math.ceil(n / bn) != sn or math.ceil(k / bk) != sk:
+            raise ValueError(
+                f"FP8 weight shape {(n, k)} and scale shape {(sn, sk)} do not match "
+                f"src_block_size={(bn, bk)}"
+            )
+    else:
+        bn = _infer_power_of_two_block_dim(n, sn)
+        bk = _infer_power_of_two_block_dim(k, sk)
+
+    if n % bn == 0 and k % bk == 0:
         return (w_f32.view(sn, bn, sk, bk) * s_f32.view(sn, 1, sk, 1)).reshape(n, k)
-    bn = math.ceil(n / sn)
-    bk = math.ceil(k / sk)
     s_full = s_f32.repeat_interleave(bn, dim=0).repeat_interleave(bk, dim=1)[:n, :k]
     return w_f32 * s_full
 
@@ -292,6 +325,7 @@ def convert_single_shard(
     ignored_modules: set[str],
     scope: str = "all",
     num_intra_threads: int = 1,
+    src_block_size: tuple[int, int] | None = None,
 ) -> ShardStats:
     t0 = time.perf_counter()
     torch.set_num_threads(max(1, num_intra_threads))
@@ -321,7 +355,9 @@ def convert_single_shard(
                     f"FP8 tensor {name!r} in {shard_name} missing {scale_name!r} in same shard"
                 )
             if should_quantize_target(name, scope):
-                w_f32 = dequantize_fp8_block_weight(tensor, tensors[scale_name])
+                w_f32 = dequantize_fp8_block_weight(
+                    tensor, tensors[scale_name], src_block_size=src_block_size
+                )
                 q_w, q_s = quantize_block_int8_ue8m0(
                     w_f32, block_n=block_n, block_k=block_k, use_mse=use_mse
                 )
@@ -546,6 +582,7 @@ def _convert_incremental_modelscope(
     download_cache_dir: str,
     delete_downloaded_shards: bool,
     resume: bool,
+    src_block_size: tuple[int, int] | None = None,
 ) -> tuple[dict[str, str], int, set[str], int, int, int, int]:
     from modelscope.hub.file_download import model_file_download
 
@@ -587,6 +624,7 @@ def _convert_incremental_modelscope(
             ignored_modules,
             scope=scope,
             num_intra_threads=intra_threads,
+            src_block_size=src_block_size,
         )
         weight_map.update(stats.weight_map_entries)
         total_bytes += stats.total_bytes
@@ -639,6 +677,12 @@ def convert_checkpoint(
     src_cfg = json.loads(src_cfg_path.read_text(encoding="utf-8"))
 
     src_qcfg = src_cfg.get("quantization_config") or {}
+    raw_src_bs = src_qcfg.get("weight_block_size")
+    src_block_size: tuple[int, int] | None = (
+        (int(raw_src_bs[0]), int(raw_src_bs[1]))
+        if isinstance(raw_src_bs, (list, tuple)) and len(raw_src_bs) == 2
+        else None
+    )
     ignored_modules = set(src_qcfg.get("modules_to_not_convert") or [])
     if src_qcfg.get("ignored_layers"):
         ignored_modules.update(src_qcfg["ignored_layers"])
@@ -734,6 +778,7 @@ def convert_checkpoint(
                 download_cache_dir=cache_root,
                 delete_downloaded_shards=delete_downloaded_shards,
                 resume=resume,
+                src_block_size=src_block_size,
             )
         else:
             tasks = []
@@ -766,6 +811,7 @@ def convert_checkpoint(
                         ignored_modules,
                         scope,
                         intra_threads,
+                        src_block_size,
                     )
                 )
 
@@ -823,6 +869,7 @@ def convert_checkpoint(
             ignored_modules,
             scope=scope,
             num_intra_threads=max(1, (os.cpu_count() or 16) // 2),
+            src_block_size=src_block_size,
         )
         kept_modules.update(st.kept_modules)
         total_bytes = st.total_bytes

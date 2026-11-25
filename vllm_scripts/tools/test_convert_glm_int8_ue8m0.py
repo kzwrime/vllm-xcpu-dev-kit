@@ -95,9 +95,16 @@ def test_convert_fp8_and_bf16_equivalence(tmp_path: Path):
         "model.layers.3.mlp.gate.weight": torch.randn(16, 64, dtype=torch.bfloat16),
         "model.layers.3.mlp.gate.e_score_correction_bias": torch.randn(16, dtype=torch.float32) * 0.01,
         "model.layers.78.eh_proj.weight": torch.randn(64, 128, dtype=torch.bfloat16),
-        # Quantized weights:
+        # Quantized weights (kv_a_proj_with_mqa uses 576 rows = 4.5 * 128 to exercise
+        # non-128-divisible FP8 scale [5, 2] boundary handling!):
         "model.layers.0.self_attn.q_a_proj.weight": torch.randn(128, 128, dtype=torch.bfloat16),
-        "model.layers.0.self_attn.kv_a_proj_with_mqa.weight": torch.randn(64, 128, dtype=torch.bfloat16),
+        "model.layers.0.self_attn.kv_a_proj_with_mqa.weight": torch.cat(
+            [
+                torch.randn(512, 256, dtype=torch.bfloat16) * 0.02,
+                torch.randn(64, 256, dtype=torch.bfloat16) * 0.25,
+            ],
+            dim=0,
+        ),
         "model.layers.0.self_attn.indexer.wk.weight": torch.randn(128, 256, dtype=torch.bfloat16),
         "model.layers.3.mlp.experts.0.gate_proj.weight": torch.randn(128, 128, dtype=torch.bfloat16),
         "model.layers.3.mlp.shared_experts.down_proj.weight": torch.randn(128, 128, dtype=torch.bfloat16),
@@ -197,6 +204,12 @@ def test_convert_fp8_and_bf16_equivalence(tmp_path: Path):
             assert out_fp8[f"{k}_scale_inv"].dtype == torch.uint8
             n, m = orig.shape
             assert out_fp8[f"{k}_scale_inv"].shape == (n // 16, m // 16)
+            dq_fp8 = _dequant_int8_ref(out_fp8[k], out_fp8[f"{k}_scale_inv"], 16, 16)
+            dq_bf16 = _dequant_int8_ref(out_bf16[k], out_bf16[f"{k}_scale_inv"], 16, 16)
+            rel_fp8 = (torch.linalg.norm(dq_fp8 - orig.float()) / torch.linalg.norm(orig.float())).item()
+            rel_bf16 = (torch.linalg.norm(dq_bf16 - orig.float()) / torch.linalg.norm(orig.float())).item()
+            assert rel_fp8 < 0.045, f"High FP8->Int8 error on {k}: {rel_fp8:.4f}"
+            assert rel_bf16 < 0.025, f"High BF16->Int8 error on {k}: {rel_bf16:.4f}"
         else:
             assert f"{k}_scale_inv" not in out_fp8
             assert out_fp8[k].dtype == orig.dtype
