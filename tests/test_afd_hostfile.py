@@ -30,7 +30,9 @@ printf '%s\n' "${AF_CLEANUP_HOSTS[@]}" > "$TEST_TMP/cleanup_hosts"
 
 class AfHostfileTest(unittest.TestCase):
     def test_afd_presets_fix_execution_mode_without_changing_rank_layout(self):
-        presets = sorted((ROOT / "vllm_scripts/presets/mpi/moe").glob("*af_ep*v7.sh"))
+        presets = sorted(
+            (ROOT / "vllm_scripts/presets/mpi/moe").rglob("*af_ep*v[78]*.sh")
+        )
         self.assertTrue(presets)
         for preset in presets:
             mode = re.search(r"_(eager|compile)_", preset.name).group(1)

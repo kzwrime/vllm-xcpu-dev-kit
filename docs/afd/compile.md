@@ -11,7 +11,7 @@ AFD 为每个模型和拓扑提供独立的 eager / compile preset。文件内�
 | `Qwen3-30B-A3B_dp1_tp2_af_ep_eager_v7.sh` | eager | eager |
 | `Qwen3-30B-A3B_dp1_tp2_af_ep_compile_v7.sh` | compile | compile |
 
-其余配置同样成对提供 eager / compile 文件，目前共八组、十六份 AFD V7 preset。Qwen 和 GLM dummy 文件以 `*_eager_v7.sh` / `*_compile_v7.sh` 结尾；GLM-5.2 真实权重文件在模式后保留 `fp8_kvcache_alltoallv_v7`，例如 `GLM-5.2-MXFP4_dp2_tp2_af_ep2_compile_fp8_kvcache_alltoallv_v7.sh`。原无模式文件已替换，选择文件即可确定模式。
+其余配置同样成对提供 eager / compile 文件：AFD V7 共八组、十六份 preset；AFD V8（默认 AF-EP 传输后端）除提供上述八组的同名 `_v8` 版本外，另包含 `GLM-5.2-{FP8,MXFP4}_dp1_tp1_af_ep2`（四份）以及 `presets/mpi/moe/dflash/` 下的 DFlash2 预测解码 `_v8_dflash2_5`（四份）成对文件。Qwen 和 GLM dummy 文件以 `*_eager_v[78].sh` / `*_compile_v[78].sh` 结尾；GLM-5.2 真实权重文件在模式后保留 `fp8_kvcache_alltoallv_v[78]`，例如 `GLM-5.2-MXFP4_dp2_tp2_af_ep2_compile_fp8_kvcache_alltoallv_v8.sh`。原无模式文件已替换，选择文件即可确定模式。
 
 需要临时验证 A-only 或 F-only 时，在自定义 preset 中先 source 对应官方文件，再设置 `USER_VLLM_AFD_F_COMPILE=0` 或 `1`。官方 preset 自身会固定该值，因此命令行提前赋值不能覆盖文件的模式。
 
@@ -21,7 +21,7 @@ F 命令行的 `--compile` 由启动脚本自动传入，控制链是：
 compile preset：USER_VLLM_AFD_F_COMPILE=1
   → serve_afd_mp_rpc_all_mpi_template.sh 的 F 分支追加 --compile
   → af_ep/moe/__main__.py 解析为 compile_model=True
-  → ExpertServiceOptions → ExpertServiceV7 → torch.compile
+  → ExpertServiceOptions → ExpertServiceV7 / ExpertServiceV8 → torch.compile
 ```
 
 eager preset 设置该变量为 `0`，模板不传 `--compile`，F 的 `compile_model` 默认值为 False。使用 `run_vllm_test.sh -e <preset>` 时无需自行添加 F 参数。A 的模式由 `USER_VLLM_EAGER_OR_NOT` 控制：compile 文件清空该变量，eager 文件设置 `--enforce-eager`。
@@ -109,6 +109,14 @@ dispatch-recv、dispatch-send、combine-recv 已通过 schema 声明 tensor muta
 
 这使用当前开发套件 PyTorch 的内部 effect API。升级 PyTorch 时需要重跑无输出节点保留、Inductor 实际执行和完整模型测试；不能以关闭 DCE 代替副作用声明。
 
+### V8（对齐 V5）的编译边界更新
+
+AFD V8（`mpi_alltoallv_v8`）在保留相同 A/F 编译触发机制的基础上，将单层事务收敛为对齐 `fused_ep_moe_v5` 协议的融合算子：
+
+- **A 端（`ExpertsClientV8`）**：模型图中每层仅调用单个 mutable 算子 `fused_af_a_dispatch_combine_v8_{bf16,fp32}`（`layer_idx` 为 `SymInt`），算子内部完成打包、MPI Alltoallv dispatch/combine、FP32 归并以及可选的 A 端融合 shared expert（通过 `install_fused_shared_experts` 绑定未量化 / FP8 / MXFP4 / INT8 打包权重与门控）。
+- **F 端（`ExpertServiceV8`）**：`_execute_layer` 编译单个算子 `fused_af_f_moe_v8_<Backend>`（`layer_idx` 为 `SymInt`，通过 `workspace(a!)` mutation 保持图内保留与顺序），算子内部零拷贝读取 MPI 接收窗口完成 indexed GEMM1、激活（含 `swiglu_limit` 截断）、GEMM2、本地归并与 combine 发送。
+- **分块、非整除专家与异步发送**：支持通过 `VLLM_XCPU_AF_V8_RECV_QUOTA`（默认 1024）对超配额输入自动多轮分块，支持非整除 `num_experts` 按 F 端 EP 数补齐；可选环境变量 `TORCH_XCPU_FUSED_AF_V8_ASYNC_DISPATCH=1` 在 round 0 使用 `MPI_Ialltoallv` 重叠 A 端融合 shared MLP 与通信（须在所有 A/F rank 上保持一致，窗口初始化阶段自动校验）。
+
 ## 构建与回归
 
 本次没有修改 native 算子 ABI、V7 协议或 MPI world 拓扑。修改 `torch_xcpu` Python 注册代码后，仍需更新安装包；只修改源目录不会更新非 editable 安装。插件在当前开发环境中为 editable 安装。
@@ -162,6 +170,6 @@ preset 拆分后重新通过 17 个 pytest 用例、21 个子测试，验证十�
 
 加入 GLM-5.2 真实权重 presets 后，回归更新为按文件名中的 `_eager_` / `_compile_` 判定模式，直接核对 A/F 配置、V2 runner 与 MPI world size；不依赖日志文字或模式必须紧邻 `_v7` 的命名约束。通过 17 个用例、25 个子测试，日志为 `/tmp/afd_glm_preset_update_20260930.log`。两份新增 V6 compile preset 也通过继承 eager 环境的检查，四份新增 V7 preset 显式启用 V2 runner。
 
-适配不扩大原支持范围：要求 V2 runner、BF16 activation、固定 A/F world 和相同模型 MoE 层序；CUDAGraph capture、DBO、PP、context parallel、EPLB、LoRA、speculative decoding、实际 multimodal 数据路径和 shared-expert fusion 继续受原 compatibility 限制。已有 FP8/MXFP4A16 配置已提供独立 compile preset，是否通过 compile 需以对应真实权重实测为准。
+V7 初版适配要求 V2 runner、BF16 activation、固定 A/F world 和相同模型 MoE 层序；CUDAGraph capture、DBO、PP、context parallel、EPLB、LoRA 与实际 multimodal 数据路径继续受 compatibility 限制（后续演进中，AFD 已支持无路由专家的 dense speculative draft 如 DFlash/DFlash2，且 V8 支持 A 端 shared-expert fusion）。已有 FP8/MXFP4A16 配置已提供独立 compile preset，是否通过 compile 需以对应真实权重实测为准。
 
 本轮本机测试不代替物理跨机、目标 NPU 或完整量化矩阵验收。Inductor 对 mutable workspace 的 functionalization 可能引入 clone/copy-back；本次目标是 compile 功能适配，未测吞吐收益或消除这些拷贝。
