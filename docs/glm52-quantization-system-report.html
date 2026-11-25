@@ -1,0 +1,2223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>大模型量化技术体系调研与 Int8 + UE8M0 离线量化推进报告</title>
+  <style>
+    :root {
+      --bg-page: #f1f5f9;
+      --bg-card: #ffffff;
+      --bg-subtle: #f8fafc;
+      --text-main: #1e293b;
+      --text-secondary: #475569;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --border-strong: #cbd5e1;
+      --primary: #1d4ed8;
+      --primary-light: #eff6ff;
+      --emerald: #047857;
+      --emerald-light: #ecfdf5;
+      --amber: #b45309;
+      --amber-light: #fffbeb;
+      --rose: #be123c;
+      --rose-light: #fff1f2;
+      --violet: #6d28d9;
+      --violet-light: #f5f3ff;
+      --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06);
+      --shadow-md: 0 8px 28px rgba(15, 23, 42, 0.07);
+      --radius: 12px;
+      --sidebar-w: 252px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
+      color: var(--text-main);
+      background: var(--bg-page);
+      line-height: 1.72;
+      font-size: 15px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Wider Fluid Layout with Collapsible Sidebar */
+    .layout {
+      max-width: 1620px;
+      width: 97%;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+      gap: 24px;
+      padding: 24px 16px 64px;
+      align-items: start;
+      transition: grid-template-columns 0.22s ease, gap 0.22s ease;
+    }
+
+    body.sidebar-collapsed .layout {
+      grid-template-columns: 0px minmax(0, 1fr);
+      gap: 0px;
+    }
+
+    /* Sidebar TOC */
+    .sidebar {
+      position: sticky;
+      top: 20px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 14px;
+      box-shadow: var(--shadow-sm);
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+      overflow-x: hidden;
+      transition: opacity 0.2s ease, transform 0.2s ease, padding 0.2s ease, border-width 0.2s ease;
+    }
+    body.sidebar-collapsed .sidebar {
+      opacity: 0;
+      pointer-events: none;
+      transform: translateX(-18px);
+      padding: 0;
+      border-width: 0;
+      height: 0;
+      overflow: hidden;
+    }
+
+    .sidebar-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 0 4px 12px 8px;
+      gap: 8px;
+    }
+    .sidebar-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin: 0;
+    }
+    .btn-collapse {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 3px 8px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s, color 0.15s;
+    }
+    .btn-collapse:hover {
+      background: #e2e8f0;
+      color: #0f172a;
+    }
+
+    /* Floating Expand Button when Sidebar Collapsed */
+    .floating-toc-btn {
+      position: fixed;
+      top: 22px;
+      left: 18px;
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      gap: 6px;
+      background: #0f172a;
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 999px;
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 6px 18px rgba(15, 23, 42, 0.22);
+      transition: transform 0.15s ease, background 0.15s ease;
+    }
+    .floating-toc-btn:hover {
+      background: #1d4ed8;
+      transform: translateY(-1px);
+    }
+    body.sidebar-collapsed .floating-toc-btn {
+      display: inline-flex;
+    }
+
+    .toc-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .toc-list li { margin: 2px 0; }
+    .toc-list a {
+      display: block;
+      padding: 5.5px 9px;
+      border-radius: 7px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.15s ease;
+      line-height: 1.4;
+    }
+    .toc-list a:hover {
+      background: var(--primary-light);
+      color: var(--primary);
+    }
+    .toc-list a.sub {
+      padding-left: 20px;
+      font-size: 12.2px;
+      font-weight: 400;
+      color: var(--text-muted);
+    }
+    .toc-list a.active {
+      background: var(--primary-light);
+      color: var(--primary);
+      font-weight: 600;
+    }
+    .sidebar-footer {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--text-muted);
+      padding-left: 6px;
+    }
+    .btn-print {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 10px;
+      padding: 7px 12px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-strong);
+      border-radius: 7px;
+      color: var(--text-main);
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      justify-content: center;
+      transition: background 0.15s;
+    }
+    .btn-print:hover { background: #e2e8f0; }
+
+    /* Main Paper */
+    .paper {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: var(--shadow-md);
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    /* Hero Banner */
+    .hero {
+      background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 58%, #1d4ed8 100%);
+      color: #ffffff;
+      padding: 42px 52px 38px;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      right: -80px;
+      top: -80px;
+      width: 360px;
+      height: 360px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(96, 165, 250, 0.24) 0%, rgba(96, 165, 250, 0) 70%);
+      pointer-events: none;
+    }
+    .hero-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.26);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      margin-bottom: 14px;
+      color: #e0f2fe;
+    }
+    .hero h1 {
+      margin: 0 0 14px;
+      font-size: 32px;
+      line-height: 1.28;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      color: #ffffff;
+    }
+    .hero-sub {
+      margin: 0 0 24px;
+      font-size: 15.5px;
+      color: #e2e8f0;
+      max-width: 980px;
+      line-height: 1.75;
+    }
+    /* High-contrast highlight inside dark Hero */
+    .hero strong {
+      color: #fef08a;
+      background: rgba(254, 240, 138, 0.14);
+      border: 1px solid rgba(254, 240, 138, 0.35);
+      padding: 1px 7px;
+      border-radius: 5px;
+      font-weight: 700;
+    }
+    .hero code {
+      background: rgba(255, 255, 255, 0.14);
+      color: #e0f2fe;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+    }
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+      border-top: 1px solid rgba(255, 255, 255, 0.18);
+      padding-top: 18px;
+    }
+    .meta-item { font-size: 13px; }
+    .meta-label { color: #93c5fd; font-weight: 600; display: block; margin-bottom: 2px; }
+    .meta-val { color: #ffffff; font-weight: 500; }
+
+    /* Content Area */
+    .content { padding: 36px 52px 54px; }
+
+    /* Typography */
+    h2 {
+      margin: 44px 0 18px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #e2e8f0;
+      font-size: 22px;
+      font-weight: 800;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      scroll-margin-top: 24px;
+    }
+    h2 .sec-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 30px;
+      height: 30px;
+      padding: 0 8px;
+      border-radius: 8px;
+      background: var(--primary);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    h3 {
+      margin: 28px 0 12px;
+      font-size: 17.5px;
+      font-weight: 700;
+      color: #1e293b;
+      scroll-margin-top: 24px;
+    }
+    h4 {
+      margin: 18px 0 8px;
+      font-size: 15.5px;
+      font-weight: 700;
+      color: #334155;
+    }
+    p { margin: 10px 0 14px; color: var(--text-main); }
+    ul, ol { margin: 8px 0 16px; padding-left: 22px; }
+    li { margin: 6px 0; }
+    strong { color: #0f172a; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      background: #f1f5f9;
+      color: #0f172a;
+      padding: 1.5px 6px;
+      border-radius: 5px;
+      border: 1px solid #e2e8f0;
+    }
+
+    /* Citation superscripts */
+    sup.cite {
+      font-size: 11px;
+      font-weight: 700;
+      margin-left: 1px;
+      line-height: 0;
+    }
+    sup.cite a {
+      color: #2563eb;
+      text-decoration: none;
+      padding: 0 2px;
+      border-radius: 3px;
+    }
+    sup.cite a:hover {
+      background: #dbeafe;
+      text-decoration: underline;
+    }
+
+    /* Executive KPI Strip */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+      margin: 18px 0 26px;
+    }
+    .kpi-card {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 18px;
+      border-top: 3px solid var(--primary);
+    }
+    .kpi-card.emerald { border-top-color: var(--emerald); }
+    .kpi-card.violet { border-top-color: var(--violet); }
+    .kpi-card.amber { border-top-color: var(--amber); }
+    .kpi-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .kpi-value {
+      font-size: 24px;
+      font-weight: 800;
+      color: #0f172a;
+      margin: 6px 0 5px;
+      line-height: 1.2;
+    }
+    .kpi-card.emerald .kpi-value { color: var(--emerald); }
+    .kpi-card.violet .kpi-value { color: var(--violet); }
+    .kpi-card.amber .kpi-value { color: var(--amber); }
+    .kpi-desc { font-size: 12.8px; color: var(--text-secondary); line-height: 1.5; }
+
+    /* Callouts */
+    .callout {
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin: 18px 0;
+      border-left: 4px solid var(--primary);
+      background: var(--primary-light);
+    }
+    .callout.emerald { border-left-color: var(--emerald); background: var(--emerald-light); }
+    .callout.amber { border-left-color: var(--amber); background: var(--amber-light); }
+    .callout.rose { border-left-color: var(--rose); background: var(--rose-light); }
+    .callout-title {
+      font-weight: 700;
+      font-size: 14.5px;
+      margin: 0 0 6px;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .callout p:last-child, .callout ul:last-child { margin-bottom: 0; }
+
+    /* Cards Grid */
+    .card-grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+      margin: 16px 0 22px;
+    }
+    .card-grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+      margin: 16px 0 22px;
+    }
+    .info-card {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      padding: 17px 20px;
+    }
+    .info-card h4 {
+      margin: 0 0 8px;
+      font-size: 15px;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .info-card p { font-size: 13.8px; margin: 6px 0; color: var(--text-secondary); }
+    .info-card ul, .info-card ol { font-size: 13.8px; margin: 6px 0 0; color: var(--text-secondary); }
+
+    /* Tags & Badges */
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .tag-blue { background: #dbeafe; color: #1e40af; }
+    .tag-green { background: #d1fae5; color: #065f46; }
+    .tag-amber { background: #fef3c7; color: #92400e; }
+    .tag-rose { background: #ffe4e6; color: #9f1239; }
+    .tag-violet { background: #ede9fe; color: #5b21b6; }
+    .tag-slate { background: #e2e8f0; color: #334155; }
+
+    /* Tables */
+    .table-wrap {
+      overflow-x: auto;
+      margin: 16px 0 22px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13.8px;
+      background: #fff;
+    }
+    thead th {
+      background: #f8fafc;
+      color: #0f172a;
+      font-weight: 700;
+      text-align: left;
+      padding: 11px 13px;
+      border-bottom: 2px solid var(--border-strong);
+      white-space: nowrap;
+    }
+    tbody td {
+      padding: 10px 13px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+      color: var(--text-main);
+    }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: #f8fafc; }
+    tr.highlight-row td {
+      background: #eff6ff;
+      font-weight: 600;
+    }
+    tr.highlight-emerald td {
+      background: #ecfdf5;
+      font-weight: 600;
+    }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* Figures / SVGs */
+    .code-card {
+      margin: 18px 0 24px;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #0f172a;
+      box-shadow: var(--shadow-sm);
+    }
+    .code-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 9px 16px;
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      color: #e2e8f0;
+      font-size: 12.5px;
+      font-weight: 600;
+    }
+    .code-header .lang-pill {
+      background: rgba(59, 130, 246, 0.25);
+      color: #93c5fd;
+      border: 1px solid rgba(147, 197, 253, 0.35);
+      padding: 1px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+    }
+    pre.code-block {
+      margin: 0;
+      padding: 16px 18px;
+      overflow-x: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12.8px;
+      line-height: 1.62;
+      color: #e2e8f0;
+      background: #0f172a;
+    }
+    pre.code-block .kw { color: #93c5fd; font-weight: 600; }
+    pre.code-block .fn { color: #fde047; }
+    pre.code-block .cm { color: #94a3b8; font-style: italic; }
+    pre.code-block .st { color: #86efac; }
+    pre.code-block .nb { color: #c4b5fd; }
+
+    .path-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin: 14px 0 20px;
+    }
+    .path-card {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 13px;
+    }
+    .path-card .path-title {
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .path-card .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+    .path-card p { margin: 0; font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; }
+    @media (max-width: 1100px) { .path-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media print {
+      .code-card { background: #f8fafc; border-color: #cbd5e1; break-inside: avoid; }
+      .code-header { background: #e2e8f0; color: #0f172a; border-color: #cbd5e1; }
+      pre.code-block { background: #f8fafc; color: #0f172a; font-size: 11px; }
+      pre.code-block .kw { color: #1d4ed8; }
+      pre.code-block .fn { color: #7c2d12; }
+      pre.code-block .cm { color: #64748b; }
+      pre.code-block .st { color: #047857; }
+      pre.code-block .nb { color: #6d28d9; }
+    }
+
+    .figure {
+      margin: 22px 0 26px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 20px 14px;
+    }
+    .figure-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .figure-title {
+      font-size: 14.8px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .figure-sub {
+      font-size: 12.2px;
+      color: var(--text-muted);
+    }
+    .svg-box {
+      width: 100%;
+      overflow-x: auto;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .svg-box svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      min-width: 780px;
+    }
+    .figure-caption {
+      margin-top: 10px;
+      font-size: 12.8px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* References Section */
+    .ref-group-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #1e3a8a;
+      margin: 16px 0 8px;
+      padding-left: 8px;
+      border-left: 3px solid #3b82f6;
+    }
+    .ref-list {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 12px;
+      font-size: 13.2px;
+      color: var(--text-secondary);
+    }
+    .ref-list li {
+      padding: 5px 8px;
+      border-radius: 6px;
+      margin: 3px 0;
+      display: grid;
+      grid-template-columns: 40px minmax(0, 1fr);
+      gap: 6px;
+    }
+    .ref-list li:target {
+      background: #fef9c3;
+      color: #0f172a;
+    }
+    .ref-id {
+      font-weight: 700;
+      color: #1d4ed8;
+      font-variant-numeric: tabular-nums;
+    }
+    .ref-list a {
+      color: #2563eb;
+      text-decoration: none;
+      word-break: break-all;
+    }
+    .ref-list a:hover { text-decoration: underline; }
+
+    /* Footer */
+    .report-footer {
+      margin-top: 36px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+      font-size: 12.5px;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    /* Responsive */
+    @media (max-width: 1100px) {
+      .layout { grid-template-columns: 1fr; width: 100%; padding: 14px; }
+      body.sidebar-collapsed .layout { grid-template-columns: 1fr; }
+      .sidebar { position: static; max-height: none; }
+      .content { padding: 26px 22px 36px; }
+      .hero { padding: 30px 22px; }
+      .meta-grid, .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .card-grid-2, .card-grid-3 { grid-template-columns: 1fr; }
+    }
+
+    /* Print / PDF Export */
+    @media print {
+      body { background: #fff; font-size: 12px; }
+      .layout { display: block; width: 100%; max-width: none; padding: 0; }
+      .sidebar, .floating-toc-btn { display: none !important; }
+      .paper { border: none; box-shadow: none; border-radius: 0; }
+      .hero { -webkit-print-color-adjust: exact; print-color-adjust: exact; padding: 26px 30px; }
+      .content { padding: 18px 26px; }
+      h2 { break-after: avoid; page-break-after: avoid; }
+      .figure, .callout, .info-card, .kpi-grid, .table-wrap { break-inside: avoid; page-break-inside: avoid; }
+      .svg-box svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+
+<button class="floating-toc-btn" id="btnExpand" onclick="toggleSidebar()" title="展开目录">☰ 目录</button>
+
+<div class="layout">
+  <!-- Collapsible Sticky Sidebar TOC -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-title">报告目录</div>
+      <button class="btn-collapse" onclick="toggleSidebar()" title="收起目录，扩大正文阅读宽度">« 收起</button>
+    </div>
+    <ul class="toc-list" id="toc">
+      <li><a href="#sec-exec">0. 执行摘要与核心决策建议</a></li>
+      <li><a href="#sec-overview">1. 大模型量化演进与现状总览</a></li>
+      <li><a href="#sec-formats">2. 主流低精度数据格式解析</a></li>
+      <li><a class="sub" href="#sec-formats-bit">2.1 位级结构与微缩块打包</a></li>
+      <li><a class="sub" href="#sec-formats-cmp">2.2 核心格式横向对比</a></li>
+      <li><a href="#sec-methods">3. 大模型量化方法体系详述</a></li>
+      <li><a class="sub" href="#sec-methods-stage">3.1 介入阶段：预训练 / QAT / PTQ</a></li>
+      <li><a class="sub" href="#sec-methods-wa">3.2 W/A 组合与在离线策略</a></li>
+      <li><a class="sub" href="#sec-methods-algo">3.3 主流 PTQ 异常值算法对比</a></li>
+      <li><a href="#sec-ecosystem">4. 硬件支持格局与模型选型透视</a></li>
+      <li><a class="sub" href="#sec-eco-hw">4.1 主流 AI 芯片软硬支持矩阵</a></li>
+      <li><a class="sub" href="#sec-eco-hopper-bw">4.2 Hopper 软件缩放 vs Blackwell 硬件缩放</a></li>
+      <li><a class="sub" href="#sec-eco-models">4.3 GLM-5.3 vs DeepSeek-V4.1-Flash</a></li>
+      <li><a href="#sec-proposal">5. Int8 + UE8M0 离线量化方案论证</a></li>
+      <li><a class="sub" href="#sec-prop-simd">5.1 算法参考代码与 NPU SIMD 实测</a></li>
+      <li><a class="sub" href="#sec-prop-acc">5.2 算子/子图级定量精度对比</a></li>
+      <li><a class="sub" href="#sec-prop-mem">5.3 单卡权重显存增量估算 (EP64)</a></li>
+      <li><a href="#sec-roadmap">6. 推进路线、协作诉求与风险对策</a></li>
+      <li><a href="#sec-refs">7. 参考文献与权威技术来源</a></li>
+    </ul>
+    <div class="sidebar-footer">
+      <div>适用对象：管理层决策 / 矩阵乘算子团队 / 模型部署团队</div>
+      <button class="btn-print" onclick="window.print()">打印 / 导出 PDF</button>
+    </div>
+  </aside>
+
+  <!-- Main Report Body -->
+  <main class="paper">
+    <!-- Hero Header -->
+    <header class="hero">
+      <div class="hero-badge">技术调研与方案决策报告 · LLM QUANTIZATION SYSTEM REPORT</div>
+      <h1>大模型量化技术全景与 Int8 + UE8M0 离线量化推进报告</h1>
+      <p class="hero-sub">
+        系统梳理主流大模型低精度数据格式（FP8 / Int8 / MXFP8 / MXINT8 / MXFP4 / NVFP4）、量化算法流派、芯片硬件 ISA 支持边界（严格区分 Hopper 软件块缩放与 Blackwell <code>tcgen05</code> / CDNA4 硬件块缩放）及前沿模型厂商格式选型逻辑（剖析 744B GLM-5.3 与 552B+196B DeepSeek-V4.1-Flash 格式分化的深层动因），并结合目标 NPU 反量化实测与定量误差分析，论证面向本平台推进 <strong>Int8 + UE8M0</strong> 离线量化方案的可行性与协同落地路线。
+      </p>
+      <div class="meta-grid">
+        <div class="meta-item">
+          <span class="meta-label">目标承载模型</span>
+          <span class="meta-val">GLM-5.3 (~744B) / DeepSeek-V4.1-Flash (~552B + 196B Engram)</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">推荐落地方案</span>
+          <span class="meta-val">Int8 + UE8M0 ([16,16] / [32,32]) W8A16</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">报告日期</span>
+          <span class="meta-val">2026-11-25</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">文档性质</span>
+          <span class="meta-val">跨团队立项与矩阵乘算子协同评审报告</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="content">
+      <!-- Executive Summary -->
+      <section id="sec-exec">
+        <h2 style="margin-top: 6px;"><span class="sec-num">0</span> 执行摘要与核心决策建议</h2>
+        <p>
+          随着超大规模稀疏 MoE 大模型成为生产主力——例如总参数约 <strong>744B</strong>（每 Token 激活约 40B，78 层、256 专家）的 <strong>GLM-5.2 / GLM-5.3</strong><sup class="cite"><a href="#ref-15">[15]</a></sup><sup class="cite"><a href="#ref-16">[16]</a></sup>，以及骨干参数约 <strong>552B</strong>（Prefill 激活 ~8B / Decode 激活 ~16B，40 层、384 专家）外加 <strong>196B</strong> 稀疏查表 Engram 条件记忆（合计 ~748B）的 <strong>DeepSeek-V4.1-Flash</strong><sup class="cite"><a href="#ref-14">[14]</a></sup><sup class="cite"><a href="#ref-20">[20]</a></sup>——大模型推理的系统瓶颈已从纯计算全面转向<strong>显存容量与权重访存带宽墙（Memory Wall）</strong>。与此同时，AI 算力生态进入多格式并行代际：上一代硬件以原生 FP8/INT8 矩阵乘搭配软件块缩放为主，新一代旗舰（NVIDIA Blackwell B200、AMD MI350X、华为昇腾 950）则向硬件原生支持 <strong>OCP 微缩块缩放（UE8M0 + MXFP8 / MXFP4）</strong>演进<sup class="cite"><a href="#ref-1">[1]</a></sup><sup class="cite"><a href="#ref-2">[2]</a></sup><sup class="cite"><a href="#ref-4">[4]</a></sup>。
+        </p>
+
+        <div class="kpi-grid">
+          <div class="kpi-card emerald">
+            <div class="kpi-label">目标 NPU 反量化实测提速</div>
+            <div class="kpi-value">3.5× ~ 4.7×</div>
+            <div class="kpi-desc">[512, 128] 权重块反量化从 FP8 的 <strong>~7,000 cycles</strong> 降至 <strong>1,500~2,000 cycles</strong>（全 Shuffle 加载至高 8b + 算术右移 + <code>cvt.bf16.s16</code> + <code>fmul</code>）</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">算子级定量精度（BF16源）</div>
+            <div class="kpi-value">0.92% GEMM</div>
+            <div class="kpi-desc">占 97.8% 参数的 MoE 专家权重 RelRMSE <strong>0.91%</strong> / mcpu GEMM RelL2 <strong>0.92%</strong>（较官方 FP8 2.65% 降近 3 倍）；从官方 FP8 转码仅 +0.14%<sup class="cite"><a href="#ref-17">[17]</a></sup></div>
+          </div>
+          <div class="kpi-card violet">
+            <div class="kpi-label">单卡显存增量 (DP16×TP4×EP64)</div>
+            <div class="kpi-value">+67.3 MB (+0.33%)</div>
+            <div class="kpi-desc">GLM-5.2/5.3 单卡理论权重基线 ~20.20 GB，统一 [16,16] UE8M0 仅净增 <strong>67.3 MB</strong>（理论估算，以实际部署为准），比 MXINT8 [1,32] 省 8.5 倍</div>
+          </div>
+          <div class="kpi-card amber">
+            <div class="kpi-label">评测边界与闭环要求</div>
+            <div class="kpi-value">算子级已证</div>
+            <div class="kpi-desc">当前精度结论来自单矩阵 GEMM 与 MLA/Indexer/MoE 子图定量分析，<strong>尚未等同于端到端基准跑分</strong>，待算子适配后补齐验收</div>
+          </div>
+        </div>
+
+        <div class="callout emerald">
+          <div class="callout-title">核心立项结论（面向管理层决策与矩阵乘团队）</div>
+          <ul>
+            <li><strong>为什么不直接走 FP8 软件解包？</strong>在主打 BF16 矩阵核、缺乏硬件原生 FP8 矩阵指令的目标 NPU 上，FP8（E4M3FN）反量化到 BF16 存在 4-bit 指数重偏置、Subnormal（<code>exp=0</code> 含 7 档非零幅值，需 8 项查表/分支）以及 FP32 块缩放乘法等重开销，实测 [512, 128] Tile 耗时约 ~7,000 cycles；改用离线转换的<strong>标准补码 Int8 + UE8M0</strong> 后，已在真实 NPU 确认通过 4 步向量指令流将反量化压至 <strong>1,500~2,000 cycles</strong>，且数学上对 BF16 为 <strong>100% 零舍入精确表示</strong><sup class="cite"><a href="#ref-18">[18]</a></sup>。</li>
+            <li><strong>算子契约面向 GLM-5.3 与 DeepSeek-V4.1-Flash 统一设计：</strong>GLM-5.3（~744B）原生采用 <code>FP8 [128,128] FP32 Scale</code>，DeepSeek-V4.1-Flash（~552B 骨干 + 196B Engram）的 Dense/Attention/Engram 投影层原生采用 <code>FP8 [32,32] UE8M0</code>（MoE 专家为 MXFP4）<sup class="cite"><a href="#ref-14">[14]</a></sup><sup class="cite"><a href="#ref-19">[19]</a></sup>。矩阵乘团队仅需实现一套参数化支持 <code>[16,16] / [32,32]</code> 的 <strong>Int8 + UE8M0</strong> 算子契约，即可在完成 GLM-5.3 落地后平滑复用至 DeepSeek-V4.1-Flash 的 FP8 投影层（注：本文第 5.2–5.3 节定量实测均基于 GLM-5.2 权重，DeepSeek-V4.1-Flash 精度需在后续阶段独立验证）。</li>
+            <li><strong>长期路线零技术债：</strong>采用标准二进制补码 <code>torch.int8</code> + OCP 开放标准 <code>UE8M0</code>，既在当前 W8A16 路径上实现极速反量化，又完整保留未来无缝切换至硬件原生 <strong>INT8 / MXINT8 W8A8</strong> 矩阵核的演进通道，避免私有非标编码（如 S1M7、E2M5）带来的生态锁死<sup class="cite"><a href="#ref-17">[17]</a></sup>。</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- Section 1: Overview -->
+      <section id="sec-overview">
+        <h2><span class="sec-num">1</span> 大模型量化演进与现状总览</h2>
+        <p>
+          大模型自回归推理天然分裂为两个物理瓶颈迥异的计算阶段：<strong>Prefill（首字填充阶段）</strong>输入序列长、批处理有效维度 <i>M</i> 大，属于典型的<strong>计算受限（Compute-bound）</strong>；而 <strong>Decode（逐 Token 生成阶段）</strong>每步仅处理少量 Token，算术强度（FLOPs/Byte）极低，每生成一个 Token 都必须把庞大的活跃权重从 HBM 搬运至片上缓存，属于极端的<strong>显存带宽受限（Memory-bandwidth-bound）</strong>。
+        </p>
+        <p>
+          进入 MoE 时代后（如 671B 的 DeepSeek-V3<sup class="cite"><a href="#ref-11">[11]</a></sup>、~744B 的 GLM-5.3<sup class="cite"><a href="#ref-15">[15]</a></sup>、~552B 骨干 + 196B Engram 的 DeepSeek-V4.1-Flash<sup class="cite"><a href="#ref-14">[14]</a></sup>），超过 95% 的参数沉淀在稀疏路由专家与条件记忆表中。将权重从 16-bit（BF16）压缩至 8-bit 乃至 4-bit，已成为降低部署卡数、突破 HBM 带宽墙与翻倍峰值算力密度的必由之路。纵观过去四年，工业界量化体系经历了三代清晰演进：
+        </p>
+
+        <div class="card-grid-3">
+          <div class="info-card">
+            <h4>第一代：粗粒度整数 PTQ <span class="tag tag-slate">2022–2023</span></h4>
+            <p><strong>代表格式：</strong>INT8 / INT4（Per-Tensor、Per-Channel 或 Group-128 FP16 Scale）</p>
+            <p><strong>特征：</strong>以 GPTQ<sup class="cite"><a href="#ref-6">[6]</a></sup>、SmoothQuant<sup class="cite"><a href="#ref-7">[7]</a></sup>、AWQ<sup class="cite"><a href="#ref-8">[8]</a></sup> 为代表，对已训练好的 FP16/BF16 模型执行事后压缩。因粗粒度下激活异常值难处理，生产落地多以 W4A16 省显存为主。</p>
+          </div>
+          <div class="info-card">
+            <h4>第二代：细粒度块缩放 FP8 <span class="tag tag-blue">2024–2025</span></h4>
+            <p><strong>代表格式：</strong>FP8 E4M3FN + 权重 <code>[128,128]</code> / 激活 <code>[1,128]</code> FP32 Scale</p>
+            <p><strong>特征：</strong>由 DeepSeek-V3<sup class="cite"><a href="#ref-11">[11]</a></sup> 在 Hopper 架构上确立（算子层由 DeepGEMM / CUTLASS 实现软件块缩放<sup class="cite"><a href="#ref-12">[12]</a></sup>）。原生 FP8 预训练产出无损 8-bit 权重，被 GLM-5 系列<sup class="cite"><a href="#ref-15">[15]</a></sup>、Qwen3 等广泛采纳。</p>
+          </div>
+          <div class="info-card">
+            <h4>第三代：OCP 微缩块缩放（MX） <span class="tag tag-green">2025–2026+</span></h4>
+            <p><strong>代表格式：</strong><code>UE8M0</code> 纯指数 Scale + MXFP8 / MXFP4 / NVFP4 / MXINT8<sup class="cite"><a href="#ref-1">[1]</a></sup></p>
+            <p><strong>特征：</strong>以 16~32 元素极小块隔离离群值，并用 1 字节纯 2 的幂次缩放替代 4 字节 FP32 Scale；由 Blackwell <code>tcgen05</code><sup class="cite"><a href="#ref-2">[2]</a></sup>、CDNA4 <code>v_mfma_scale</code><sup class="cite"><a href="#ref-4">[4]</a></sup> 及昇腾 950 原生硬件承接，支撑 DeepSeek-V4 混合精度（Dense FP8 + MoE MXFP4）<sup class="cite"><a href="#ref-14">[14]</a></sup>。</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 2: Precision Formats -->
+      <section id="sec-formats">
+        <h2><span class="sec-num">2</span> 主流低精度数据格式解析（位级结构与横向对比）</h2>
+        <p>
+          低精度格式的设计本质是在有限比特数内权衡<strong>动态范围（指数位 Exponent）</strong>与<strong>相对精度（尾数位 Mantissa）</strong>。在开放计算项目 OCP 制定的 Microscaling Formats（MX）规范<sup class="cite"><a href="#ref-1">[1]</a></sup>中，动态范围的职责被剥离给一组元素共享的 <strong><code>UE8M0</code> 块缩放指数</strong>，从而大幅释放单个数据元素的有效位宽。
+        </p>
+
+        <h3 id="sec-formats-bit">2.1 位级结构与微缩块（Microscaling）打包机制</h3>
+
+        <!-- SVG 1: Carefully sized 1080px viewBox with zero text overflow -->
+        <div class="figure">
+          <div class="figure-header">
+            <div class="figure-title">图 1：主流低精度数值格式位宽分配与 OCP Microscaling 块缩放机制</div>
+            <div class="figure-sub">对比 BF16 / FP8 (E4M3FN, E5M2) / INT8 (补码) / FP4 (E2M1) / UE8M0 共享纯指数</div>
+          </div>
+          <div class="svg-box">
+            <svg viewBox="0 0 1080 425" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif">
+              <defs>
+                <style>
+                  .f1-lbl { font-size: 13px; font-weight: 700; fill: #0f172a; }
+                  .f1-sub { font-size: 11px; fill: #64748b; }
+                  .f1-bit { font-size: 11px; font-weight: 700; fill: #ffffff; text-anchor: middle; dominant-baseline: central; }
+                  .f1-dark { font-size: 11.5px; font-weight: 700; fill: #0f172a; text-anchor: middle; dominant-baseline: central; }
+                  .f1-note { font-size: 12px; fill: #334155; }
+                </style>
+              </defs>
+
+              <!-- Legend row -->
+              <rect x="16" y="10" width="14" height="14" rx="3" fill="#e11d48"/>
+              <text x="36" y="21" class="f1-note" font-weight="600">符号位 S</text>
+              <rect x="116" y="10" width="14" height="14" rx="3" fill="#2563eb"/>
+              <text x="136" y="21" class="f1-note" font-weight="600">指数位 E (Exponent)</text>
+              <rect x="288" y="10" width="14" height="14" rx="3" fill="#059669"/>
+              <text x="308" y="21" class="f1-note" font-weight="600">尾数位 M (Mantissa)</text>
+              <rect x="462" y="10" width="14" height="14" rx="3" fill="#7c3aed"/>
+              <text x="482" y="21" class="f1-note" font-weight="600">补码整数位 (2's Comp)</text>
+              <rect x="652" y="10" width="14" height="14" rx="3" fill="#d97706"/>
+              <text x="672" y="21" class="f1-note" font-weight="600">UE8M0 块共享纯指数 (2^(u-127))</text>
+
+              <!-- Row 1: BF16 (16 bits -> 24 + 200 + 176 = 400px, ends at x=596) -->
+              <text x="16" y="58" class="f1-lbl">BF16 (基准 16-bit)</text>
+              <text x="16" y="75" class="f1-sub">±3.4e38 | 7b 尾数</text>
+              <rect x="190" y="42" width="24" height="32" rx="4" fill="#e11d48"/>
+              <text x="202" y="58" class="f1-bit">S</text>
+              <rect x="217" y="42" width="200" height="32" rx="4" fill="#2563eb"/>
+              <text x="317" y="58" class="f1-bit">Exponent (8b, bias=127)</text>
+              <rect x="420" y="42" width="176" height="32" rx="4" fill="#059669"/>
+              <text x="508" y="58" class="f1-bit">Mantissa (7 bits)</text>
+              <text x="614" y="55" class="f1-note">隐式 1 + 7b 尾数 = 8b 有效精度；</text>
+              <text x="614" y="72" class="f1-note">可 100% 零舍入精确表示任意 Int8×UE8M0</text>
+
+              <!-- Row 2: FP8 E4M3FN (ends at x=426) -->
+              <text x="16" y="112" class="f1-lbl">FP8 (E4M3FN, 8-bit)</text>
+              <text x="16" y="129" class="f1-sub">±448 | 无 Inf (FN)</text>
+              <rect x="190" y="96" width="24" height="32" rx="4" fill="#e11d48"/>
+              <text x="202" y="112" class="f1-bit">S</text>
+              <rect x="217" y="96" width="116" height="32" rx="4" fill="#2563eb"/>
+              <text x="275" y="112" class="f1-bit">Exp (4b, b=7)</text>
+              <rect x="336" y="96" width="90" height="32" rx="4" fill="#059669"/>
+              <text x="381" y="112" class="f1-bit">Mant (3b)</text>
+              <text x="446" y="116" class="f1-note">前向权重/激活主力；3b 尾数令权重相对误差地板卡死在 ~2.65%，需块缩放防溢出</text>
+
+              <!-- Row 3: FP8 E5M2 (ends at x=426) -->
+              <text x="16" y="164" class="f1-lbl">FP8 (E5M2, 8-bit)</text>
+              <text x="16" y="181" class="f1-sub">±57344 | 同 FP16 指数</text>
+              <rect x="190" y="148" width="24" height="32" rx="4" fill="#e11d48"/>
+              <text x="202" y="164" class="f1-bit">S</text>
+              <rect x="217" y="148" width="144" height="32" rx="4" fill="#2563eb"/>
+              <text x="289" y="164" class="f1-bit">Exp (5b, bias=15)</text>
+              <rect x="364" y="148" width="62" height="32" rx="4" fill="#059669"/>
+              <text x="395" y="164" class="f1-bit">M(2b)</text>
+              <text x="446" y="168" class="f1-note">动态范围更宽但尾数仅 2b，主要用于训练反向梯度，极少用于推理权重</text>
+
+              <!-- Row 4: INT8 (ends at x=426) -->
+              <text x="16" y="216" class="f1-lbl">INT8 (补码 8-bit)</text>
+              <text x="16" y="233" class="f1-sub">[-128, 127] | 线性均匀</text>
+              <rect x="190" y="200" width="24" height="32" rx="4" fill="#e11d48"/>
+              <text x="202" y="216" class="f1-bit">S</text>
+              <rect x="217" y="200" width="209" height="32" rx="4" fill="#7c3aed"/>
+              <text x="321" y="216" class="f1-bit">2's Comp Integer (7 bits)</text>
+              <text x="446" y="220" class="f1-note">无独立指数浪费，满幅 7-bit 线性精度；搭配小块 UE8M0 精度大幅反超 FP8</text>
+
+              <!-- Row 5: FP4 E2M1 (ends at x=316) -->
+              <text x="16" y="268" class="f1-lbl">FP4 (E2M1, 4-bit)</text>
+              <text x="16" y="285" class="f1-sub">±{0, 0.5, 1..6} 共 16 值</text>
+              <rect x="190" y="252" width="24" height="32" rx="4" fill="#e11d48"/>
+              <text x="202" y="268" class="f1-bit">S</text>
+              <rect x="217" y="252" width="62" height="32" rx="4" fill="#2563eb"/>
+              <text x="248" y="268" class="f1-bit">E(2b)</text>
+              <rect x="282" y="252" width="34" height="32" rx="4" fill="#059669"/>
+              <text x="299" y="268" class="f1-bit">M</text>
+              <text x="336" y="272" class="f1-note">每字节打包 2 个元素；仅 16 个离散码点，必须绑定细粒度块缩放 (MXFP4 / NVFP4)</text>
+
+              <!-- Row 6: UE8M0 (box width 236px -> "Pure Exp (8b, bias=127)" ~145px fits with 90px margin!) -->
+              <text x="16" y="320" class="f1-lbl">UE8M0 (Scale 8-bit)</text>
+              <text x="16" y="337" class="f1-sub">OCP E8M0FNU | 2 的幂</text>
+              <rect x="190" y="304" width="236" height="32" rx="4" fill="#d97706"/>
+              <text x="308" y="320" class="f1-bit">Pure Exponent (8b, bias=127)</text>
+              <text x="446" y="317" class="f1-note">无符号无尾数：u ∈ [1,254] 表 2^(u-127)，u=0 表 2^-127，u=255 表 NaN；</text>
+              <text x="446" y="334" class="f1-note">反量化至 BF16 仅靠指数加/移位解码，免 FP32 乘法与 RNE 舍入</text>
+
+              <!-- Bottom Microscaling Block Box -->
+              <rect x="16" y="356" width="1048" height="58" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-dasharray="4 3"/>
+              <text x="30" y="376" class="f1-lbl" fill="#1e3a8a">微缩块存储结构（OCP MX [1,32] 或 2D 块 UE8M0）：</text>
+              <rect x="30" y="384" width="126" height="22" rx="4" fill="#d97706"/>
+              <text x="93" y="395" class="f1-bit">1× UE8M0 (1B)</text>
+              <text x="170" y="399" class="f1-lbl">×</text>
+              <rect x="188" y="384" width="440" height="22" rx="4" fill="#eff6ff" stroke="#3b82f6"/>
+              <text x="408" y="395" class="f1-dark" font-size="11">Block 载荷：OCP k=32 ([1,32]) 或 2D [16,16] / [32,32]</text>
+              <text x="646" y="399" class="f1-note" font-weight="600">→ 有效位宽 BPW = 元素位宽 + (8 bit / 块元素数)</text>
+            </svg>
+          </div>
+          <div class="figure-caption">
+            说明：OCP Microscaling 规范 v1.0（2023）最初称 8-bit 共享纯指数为 <code>E8M0</code>，v1.1 规范将其正式定名为 <code>UE8M0</code>（PyTorch 记作 <code>float8_e8m0fnu</code>）<sup class="cite"><a href="#ref-1">[1]</a></sup>。图中各色块宽度按语义分段清晰展示（非严格等比像素）。
+          </div>
+        </div>
+
+        <h3 id="sec-formats-cmp">2.2 主流核心精度格式横向对比（FP8 / Int8 / MXFP8 / MXINT8 / MXFP4 / NVFP4）</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>格式名称</th>
+                <th>元素编码</th>
+                <th>Scale 类型与块粒度</th>
+                <th class="num">有效位宽<br>(BPW)</th>
+                <th>精度 / 数值误差特征</th>
+                <th>典型代表模型与硬件定位</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>BF16</strong><br><span class="tag tag-slate">基准 16-bit</span></td>
+                <td>1S + 8E + 7M</td>
+                <td>无（单元素自带 FP32 同宽指数）</td>
+                <td class="num">16.00 b</td>
+                <td>极高（~0.2%），无缩放开销</td>
+                <td>模型主训练精度、默认激活精度；Embed / Norm / LM Head</td>
+              </tr>
+              <tr>
+                <td><strong>FP8 (Block)</strong><br><span class="tag tag-blue">Hopper 事实标准</span></td>
+                <td>E4M3FN<br>(1S+4E+3M)</td>
+                <td><strong>FP32 (4B)</strong><br>权重 <code>[128,128]</code><br>激活 <code>[1,128]</code></td>
+                <td class="num">8.002 b</td>
+                <td>受限于 3-bit 尾数，权重 RelRMSE 地板锁死在 <strong>~2.65%</strong>；对数刻度抗异常值强</td>
+                <td>Hopper WGMMA + DeepGEMM/CUTLASS 软件缩放<sup class="cite"><a href="#ref-11">[11]</a></sup><sup class="cite"><a href="#ref-12">[12]</a></sup>；<strong>DeepSeek-V3、GLM-5 / 5.2 / 5.3</strong><sup class="cite"><a href="#ref-15">[15]</a></sup></td>
+              </tr>
+              <tr>
+                <td><strong>MXFP8</strong><br><span class="tag tag-blue">OCP 开放标准</span></td>
+                <td>E4M3 / E5M2</td>
+                <td><strong>UE8M0 (1B)</strong><br>OCP <code>[1,32]</code><br>或 2D <code>[32,32]</code></td>
+                <td class="num">8.25 b<br><span style="color:#64748b;font-size:11.5px;">(2D: 8.008b)</span></td>
+                <td>元素尾数仍为 3-bit（地板 ~2.65%），但块更细、Scale 仅 1B 且免 FP32 乘法</td>
+                <td>Blackwell <code>tcgen05</code><sup class="cite"><a href="#ref-2">[2]</a></sup>、CDNA4<sup class="cite"><a href="#ref-4">[4]</a></sup>、昇腾 950 原生支持；<strong>DeepSeek-V4.1-Flash</strong> 非 MoE 层用 <code>[32,32]</code> UE8M0<sup class="cite"><a href="#ref-14">[14]</a></sup><sup class="cite"><a href="#ref-19">[19]</a></sup></td>
+              </tr>
+              <tr>
+                <td><strong>传统 Int8</strong><br><span class="tag tag-slate">早期整数方案</span></td>
+                <td>补码 Int8<br><code>[-128, 127]</code></td>
+                <td><strong>FP16/FP32</strong><br>Per-Channel / Per-Token</td>
+                <td class="num">8.01 b</td>
+                <td>7-bit 线性精度高，但粗粒度下极易受单个大异常值拖累全行步长</td>
+                <td>配合 SmoothQuant<sup class="cite"><a href="#ref-7">[7]</a></sup> 跑传统 INT8 W8A8（如昇腾 910B、TPU v5/v6e）</td>
+              </tr>
+              <tr class="highlight-emerald">
+                <td><strong>Int8 + UE8M0 (2D)</strong><br><span class="tag tag-green">本方案推荐</span></td>
+                <td>补码 Int8<br><code>[-128, 127]</code></td>
+                <td><strong>UE8M0 (1B)</strong><br><code>[16,16]</code>（推荐）<br>或 <code>[32,32]</code></td>
+                <td class="num"><strong>8.031 b</strong><br><span style="color:#047857;font-size:11.5px;">([32,32]: 8.008b)</span></td>
+                <td>突破 FP8 地板！GLM-5.2 MoE 权重 RelRMSE 降至 <strong>0.91%</strong>（GEMM 0.92%~0.93%）；保留 2D 转置不变性与行间 Scale 复用；BF16 零舍入<sup class="cite"><a href="#ref-17">[17]</a></sup></td>
+                <td><strong>本平台目标 NPU 首选 W8A16 离线量化格式</strong>（已完成 GLM-5.2 算子/子图验证，契约可向 V4.1-Flash FP8 层复用）</td>
+              </tr>
+              <tr>
+                <td><strong>MXINT8</strong><br><span class="tag tag-violet">OCP 整数标准</span></td>
+                <td>补码 Int8<br><code>[-128, 127]</code></td>
+                <td><strong>UE8M0 (1B)</strong><br>OCP <code>[1,32]</code></td>
+                <td class="num">8.25 b</td>
+                <td>单层精度最高（0.81%–1.04%）；W8A8 亦优于 FP8 W8A16<sup class="cite"><a href="#ref-17">[17]</a></sup>，但 Scale 体积是 <code>[16,16]</code> 的 8×</td>
+                <td>OCP MX 规范原生定义的微缩整数格式<sup class="cite"><a href="#ref-1">[1]</a></sup>；面向未来硬件原生微缩 INT8 W8A8 演进</td>
+              </tr>
+              <tr>
+                <td><strong>MXFP4</strong><br><span class="tag tag-amber">OCP 4-bit 标准</span></td>
+                <td>FP4 E2M1<br>(1S+2E+1M)</td>
+                <td><strong>UE8M0 (1B)</strong><br>OCP <code>[1,32]</code></td>
+                <td class="num">4.25 b</td>
+                <td>相对 BF16 压缩 3.76×；单元素仅 1b 尾数，原生常需训练/QAT 适配以保复杂推理精度</td>
+                <td>Blackwell / CDNA4 / 昇腾 950 原生 2× 算力；<strong>DeepSeek-V4.1-Flash</strong> 路由 MoE 专家主力<sup class="cite"><a href="#ref-14">[14]</a></sup></td>
+              </tr>
+              <tr>
+                <td><strong>NVFP4</strong><br><span class="tag tag-rose">NVIDIA 私有</span></td>
+                <td>FP4 E2M1<br>(1S+2E+1M)</td>
+                <td><strong>FP8 E4M3 (1B)</strong><br><code>[1,16]</code> + FP32 Tensor</td>
+                <td class="num">4.50 b</td>
+                <td>双级缩放（16 元素小块 + 带 3b 尾数的 E4M3 Scale），4-bit 精度显著优于 MXFP4<sup class="cite"><a href="#ref-3">[3]</a></sup></td>
+                <td>NVIDIA Blackwell 专属 4-bit 格式（<code>kind::mxf4nvf4</code>）；非 NVIDIA 平台需在线重映射</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout">
+          <div class="callout-title">核心数学洞察：为何小块 Int8 的数值精度反而显著高于 FP8（E4M3FN）？</div>
+          <p>
+            直觉常认为“浮点（FP8）比整数（Int8）更准”，但这仅在<strong>粗粒度大动态范围</strong>下成立。8-bit 总预算中，FP8 花费 4 bit 存独立指数，只剩 <strong>3 bit 尾数</strong>，导致无论块切得多细，FP8 每个元素的相对舍入步长始终卡死在 2<sup>&minus;3</sup>/2 = 6.25%（对应权重均方根误差地板 <strong>~2.65%</strong>）。反观补码 <code>Int8</code> 将全部 7 bit 幅值用于线性精度，块内相对误差满足 RelRMSE<sub>int8</sub> &approx; CF / (&radic;12 &middot; <i>Q</i><sub>eff</sub>)：只要用 <code>[16,16]</code> 或 <code>[32,32]</code> 小块将峰值因子 CF = amax / rms 压至 3~4 左右，Int8 相对误差即降至 <strong>0.9%~1.7%</strong>，全面反超 FP8<sup class="cite"><a href="#ref-17">[17]</a></sup>。
+          </p>
+        </div>
+      </section>
+
+      <!-- Section 3: Quantization Methods -->
+      <section id="sec-methods">
+        <h2><span class="sec-num">3</span> 大模型量化方法体系详述（分维度拆解）</h2>
+        <p>
+          业内常将“预训练量化、QAT、PTQ、离线/在线、W8A16/W8A8、AWQ/GPTQ/SmoothQuant/QuaRot”混谈。从工程视角看，它们实际分属<strong>四个相互正交的维度</strong>：<strong>何时介入（生命周期）</strong>、<strong>量化对象（W/A 组合）</strong>、<strong>定标时机与粒度</strong>以及<strong>异常值抑制算法</strong>。
+        </p>
+
+        <!-- SVG 2: 1080px wide 4-column taxonomy with generous padding -->
+        <div class="figure">
+          <div class="figure-header">
+            <div class="figure-title">图 2：大模型量化方法四维全景体系图</div>
+            <div class="figure-sub">厘清介入阶段、W/A 计算形态、定标粒度与主流 PTQ 异常值算法的关系</div>
+          </div>
+          <div class="svg-box">
+            <svg viewBox="0 0 1080 348" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif">
+              <!-- Col 1: x=12, w=250 -->
+              <rect x="12" y="12" width="250" height="324" rx="10" fill="#eff6ff" stroke="#bfdbfe"/>
+              <rect x="12" y="12" width="250" height="36" rx="10" fill="#1d4ed8"/>
+              <text x="137" y="35" font-size="13.5" font-weight="700" fill="#fff" text-anchor="middle">维度一：介入阶段（何时量化）</text>
+
+              <rect x="24" y="60" width="226" height="74" rx="7" fill="#fff" stroke="#93c5fd"/>
+              <text x="36" y="81" font-size="12.5" font-weight="700" fill="#1e3a8a">1. 原生低精度预训练</text>
+              <text x="36" y="100" font-size="11.2" fill="#475569">FP8 / MXFP4 原生前反向训练</text>
+              <text x="36" y="118" font-size="11.2" fill="#475569">精度无损，需原厂万卡级算力</text>
+
+              <rect x="24" y="146" width="226" height="74" rx="7" fill="#fff" stroke="#93c5fd"/>
+              <text x="36" y="167" font-size="12.5" font-weight="700" fill="#1e3a8a">2. 量化感知训练 (QAT)</text>
+              <text x="36" y="186" font-size="11.2" fill="#475569">插入伪量化节点微调适应噪声</text>
+              <text x="36" y="204" font-size="11.2" fill="#475569">4-bit 提效显著，仍需训练管线</text>
+
+              <rect x="24" y="232" width="226" height="92" rx="7" fill="#ecfdf5" stroke="#10b981" stroke-width="1.8"/>
+              <text x="36" y="253" font-size="12.5" font-weight="700" fill="#065f46">3. 训练后量化 (PTQ) ★</text>
+              <text x="36" y="272" font-size="11.2" fill="#065f46">免重训，分钟~小时级离线转换</text>
+              <text x="36" y="290" font-size="11.2" fill="#065f46">推理部署与硬件适配最主流手段</text>
+              <text x="36" y="310" font-size="11" font-weight="700" fill="#047857">[本方案定位：零校准离线 PTQ]</text>
+
+              <!-- Col 2: x=280, w=250 -->
+              <rect x="280" y="12" width="250" height="324" rx="10" fill="#f5f3ff" stroke="#ddd6fe"/>
+              <rect x="280" y="12" width="250" height="36" rx="10" fill="#6d28d9"/>
+              <text x="405" y="35" font-size="13.5" font-weight="700" fill="#fff" text-anchor="middle">维度二：W/A 计算形态</text>
+
+              <rect x="292" y="60" width="226" height="64" rx="7" fill="#ecfdf5" stroke="#10b981" stroke-width="1.8"/>
+              <text x="304" y="80" font-size="12.5" font-weight="700" fill="#065f46">W8A16 (权重量化) ★</text>
+              <text x="304" y="98" font-size="11.2" fill="#065f46">权重 8b→解包 BF16；激活 BF16</text>
+              <text x="304" y="114" font-size="11.2" fill="#047857">主攻 Decode 访存墙，精度最稳</text>
+
+              <rect x="292" y="134" width="226" height="58" rx="7" fill="#fff" stroke="#c4b5fd"/>
+              <text x="304" y="153" font-size="12.5" font-weight="700" fill="#4c1d95">W4A16 (4-bit 权重量化)</text>
+              <text x="304" y="170" font-size="10.5" fill="#475569">4b 权重 (INT4/MXFP4)，省显存 ~4×</text>
+              <text x="304" y="185" font-size="11.2" fill="#475569">极致缓解超大 MoE 容量与带宽</text>
+
+              <rect x="292" y="202" width="226" height="58" rx="7" fill="#fff" stroke="#c4b5fd"/>
+              <text x="304" y="221" font-size="12.5" font-weight="700" fill="#4c1d95">W8A8 (权+激双 8-bit)</text>
+              <text x="304" y="238" font-size="11.2" fill="#475569">需硬件原生 FP8/INT8 矩阵核</text>
+              <text x="304" y="253" font-size="11.2" fill="#475569">Prefill &amp; 大 Batch 算力翻倍</text>
+
+              <rect x="292" y="270" width="226" height="54" rx="7" fill="#fff" stroke="#c4b5fd"/>
+              <text x="304" y="290" font-size="12.5" font-weight="700" fill="#4c1d95">W4A4 + KV Cache 量化</text>
+              <text x="304" y="309" font-size="11.2" fill="#475569">B200/950 极限算力；KV 独立正交</text>
+
+              <!-- Col 3: x=548, w=250 -->
+              <rect x="548" y="12" width="250" height="324" rx="10" fill="#fffbeb" stroke="#fde68a"/>
+              <rect x="548" y="12" width="250" height="36" rx="10" fill="#b45309"/>
+              <text x="673" y="35" font-size="13.5" font-weight="700" fill="#fff" text-anchor="middle">维度三：定标时机与粒度</text>
+
+              <rect x="560" y="60" width="226" height="74" rx="7" fill="#fff" stroke="#fcd34d"/>
+              <text x="572" y="81" font-size="12.5" font-weight="700" fill="#92400e">离线静态 vs 在线动态</text>
+              <text x="572" y="100" font-size="11.2" fill="#475569">• 权重：永远离线算好 Scale 存盘</text>
+              <text x="572" y="118" font-size="11.2" fill="#475569">• 激活：在线按 Token 动态算 Scale</text>
+
+              <rect x="560" y="146" width="226" height="178" rx="7" fill="#fff" stroke="#fcd34d"/>
+              <text x="572" y="167" font-size="12.5" font-weight="700" fill="#92400e">缩放粒度演进（由粗到细）</text>
+              <text x="572" y="190" font-size="11.2" fill="#64748b">① Per-Tensor（整张量共享 1 个）</text>
+              <text x="572" y="211" font-size="11.2" fill="#64748b">② Per-Channel / Per-Token</text>
+              <text x="572" y="232" font-size="11.2" fill="#1e40af" font-weight="600">③ 2D Block [128,128] (GLM-5.3)</text>
+              <text x="572" y="253" font-size="11.2" fill="#047857" font-weight="700">④ 小 2D 块 [16,16] / [32,32] ★</text>
+              <text x="572" y="274" font-size="10.8" fill="#6d28d9" font-weight="600">⑤ 1D 微缩 [1,32] / [1,16]</text>
+              <text x="572" y="299" font-size="10.8" fill="#92400e">粒度越细 → 异常值隔离越好；</text>
+              <text x="572" y="315" font-size="10.8" fill="#92400e">需权衡 Scale 显存与硬件复用率</text>
+
+              <!-- Col 4: x=816, w=252 -->
+              <rect x="816" y="12" width="252" height="324" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
+              <rect x="816" y="12" width="252" height="36" rx="10" fill="#334155"/>
+              <text x="942" y="35" font-size="13.5" font-weight="700" fill="#fff" text-anchor="middle">维度四：主流 PTQ 算法</text>
+
+              <rect x="828" y="60" width="228" height="58" rx="7" fill="#ecfdf5" stroke="#10b981" stroke-width="1.8"/>
+              <text x="840" y="80" font-size="12.2" font-weight="700" fill="#065f46">RTN + 块级 MSE 优选 ★</text>
+              <text x="840" y="99" font-size="11" fill="#065f46">零校准集、零推理开销、8-bit 极稳</text>
+
+              <rect x="828" y="126" width="228" height="58" rx="7" fill="#fff" stroke="#cbd5e1"/>
+              <text x="840" y="145" font-size="12.2" font-weight="700" fill="#0f172a">GPTQ / AWQ（权重量化）</text>
+              <text x="840" y="162" font-size="11" fill="#475569">Hessian 补偿 / 显著激活通道保护</text>
+              <text x="840" y="177" font-size="11" fill="#475569">专为 W4A16 4-bit 权重保精度</text>
+
+              <rect x="828" y="192" width="228" height="60" rx="7" fill="#fff" stroke="#cbd5e1"/>
+              <text x="840" y="211" font-size="12.2" font-weight="700" fill="#0f172a">SmoothQuant（W8A8）</text>
+              <text x="840" y="228" font-size="11" fill="#475569">等价缩放把激活尖峰迁移给权重</text>
+              <text x="840" y="243" font-size="11" fill="#475569">打通无原生 FP8 硬件的 INT8 W8A8</text>
+
+              <rect x="828" y="260" width="228" height="64" rx="7" fill="#fff" stroke="#cbd5e1"/>
+              <text x="840" y="279" font-size="12.2" font-weight="700" fill="#0f172a">QuaRot / SpinQuant</text>
+              <text x="840" y="296" font-size="11" fill="#475569">Hadamard/可学习正交旋转打散尖峰</text>
+              <text x="840" y="311" font-size="11" fill="#475569">冲击极限 W4A4 / INT4 激活量化</text>
+            </svg>
+          </div>
+        </div>
+
+        <h3 id="sec-methods-stage">3.1 维度一：按介入阶段划分（预训练量化 vs QAT vs PTQ）</h3>
+        <ol>
+          <li>
+            <strong>原生低精度预训练（Native Low-Precision Pre-training）</strong>：
+            模型原厂在万亿级 Token 预训练全程直接使用 FP8 或 MXFP4 执行前向/反向矩阵乘，同时在优化器中保留 FP32 主权重（Master Weights）。典型代表如 671B DeepSeek-V3 的细粒度 FP8 预训练<sup class="cite"><a href="#ref-11">[11]</a></sup>。<em>优势</em>是原生无损且加速训练；<em>门槛</em>在于极高算力与语料成本，仅模型原厂可为。
+          </li>
+          <li>
+            <strong>量化感知训练 / 微调（QAT / QAFT）</strong>：
+            在已训模型计算图中插入“伪量化节点（Fake Quant / QDQ）”，利用直通估计器（STE）继续微调模型权重以适应截断噪声。<em>优势</em>是在 4-bit 等极限低比特下显著挽回精度；<em>代价</em>是仍需完整训练框架与显著 GPU 机时。
+          </li>
+          <li>
+            <strong>训练后量化（PTQ, Post-Training Quantization）</strong>：
+            无需反向传播重训，直接对已发布权重（BF16 或 FP8）离线转换，是推理引擎与芯片适配最主流的手段。按是否需要样本数据分为：
+            <ul>
+              <li><strong>零数据离线 PTQ（Data-free）</strong>：仅依据权重自身数值分布做小块取整或块内 MSE 搜索（单机多线程即可快速完成 700B 模型转换，<strong>无校准集过拟合风险</strong>）。</li>
+              <li><strong>校准集 PTQ（Calibration-based）</strong>：用数百条代表性文本跑前向推理，统计激活通道分布以指导权重保护或误差补偿（如 GPTQ、AWQ、SmoothQuant），主要用于 4-bit 权重或粗粒度 W8A8。</li>
+            </ul>
+          </li>
+        </ol>
+
+        <h3 id="sec-methods-wa">3.2 维度二与三：W/A 计算形态、离线/在线定标与 KV Cache 量化</h3>
+        <div class="card-grid-2">
+          <div class="info-card">
+            <h4>W8A16 vs W4A16（Weight-Only 权重量化）</h4>
+            <ul>
+              <li><strong>计算方式：</strong>权重以 8-bit/4-bit 存放在 HBM 中，加载至片上后通过 SIMD/向量单元<strong>实时反量化为 BF16</strong>，再送入 BF16 矩阵核与 BF16 激活相乘。</li>
+              <li><strong>适用价值：</strong>直击 Decode 阶段与 MoE 权重的<strong>显存容量和带宽瓶颈</strong>；因激活不量化，彻底避免激活离群值导致的精度塌陷，上线风险最低。</li>
+              <li><strong>关键指标：</strong>反量化指令周期能否足够低，不被向量单元拖成新瓶颈——这正是本方案第 5 节验证的核心突破点。</li>
+            </ul>
+          </div>
+          <div class="info-card">
+            <h4>W8A8 vs W4A4（权重 + 激活双量化）</h4>
+            <ul>
+              <li><strong>计算方式：</strong>权重离线量化；激活在推理时<strong>在线动态量化（Online Dynamic）</strong>（按 Token/Block 实时求 amax 算 Scale），直接送入硬件原生 8-bit/4-bit 矩阵核。</li>
+              <li><strong>适用价值：</strong>除压缩显存外，更能在 Prefill 或大 Batch 算力受限阶段让矩阵核峰值算力成倍提升（FP8/INT8 2×、FP4 4×）。</li>
+              <li><strong>前提条件：</strong>强依赖硬件提供原生低比特矩阵乘与（在 4-bit/微缩场景下的）硬件块缩放指令。</li>
+            </ul>
+          </div>
+        </div>
+        <p>
+          <strong>正交优化——KV Cache 量化：</strong>在长上下文（128K–1M）和高并发 Serving 中，历史 KV Cache 会迅速挤占显存。KV Cache 量化（如 DeepSeek/GLM MLA 架构下的 <code>fp8_ds_mla</code> 及本套件已支持的 <code>int8_ds_mla</code>，单 Token 均为 656 字节<sup class="cite"><a href="#ref-17">[17]</a></sup>）与权重量化相互正交，可直接叠加启用。
+        </p>
+
+        <h3 id="sec-methods-algo">3.3 维度四：主流 PTQ 异常值治理算法对比</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:17%;">算法流派与出处</th>
+                <th style="width:13%;">主攻场景</th>
+                <th style="width:34%;">核心思想（通俗原理解析）</th>
+                <th style="width:18%;">核心优势</th>
+                <th style="width:18%;">主要局限 / 代价</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="highlight-emerald">
+                <td><strong>小块 RTN + MSE 寻优</strong><br><span class="tag tag-green">本方案采用</span></td>
+                <td>8-bit 权重量化<br>(W8A16 / MX)</td>
+                <td>以 <code>[16,16]</code> 小块物理隔离离群值；离线在候选 UE8M0 指数 <code>{u_ceil-2, u_ceil-1, u_ceil}</code> 中择最小 L2 重建误差解，允许极个别尖峰轻微裁剪换取块内绝大多数元素量化步长减半<sup class="cite"><a href="#ref-17">[17]</a></sup>。</td>
+                <td><strong>零校准集、零推理开销</strong>、无过拟合风险、700B 模型离线转换快。</td>
+                <td>不适用于粗粒度 4-bit；依赖高效的小块反量化内核。</td>
+              </tr>
+              <tr>
+                <td><strong>AWQ</strong><sup class="cite"><a href="#ref-8">[8]</a></sup><br>(MLSys 2024)</td>
+                <td>4-bit 权重量化<br>(W4A16 INT4)</td>
+                <td>观察到仅 ~1% 对应“大激活通道”的显著权重决定层输出精度；用少量校准集识别显著通道后，给对应权重乘放大因子 <i>s</i>（前置激活除以 <i>s</i>）予以保护。</td>
+                <td>免二阶 Hessian 计算，跨领域泛化性优于 GPTQ，4-bit 生态极成熟。</td>
+                <td>需校准数据及通道等价缩放融合；在 8-bit 小块下边际收益极低。</td>
+              </tr>
+              <tr>
+                <td><strong>GPTQ</strong><sup class="cite"><a href="#ref-6">[6]</a></sup><br>(ICLR 2023)</td>
+                <td>4-bit/3-bit 权重<br>(W4A16 INT4)</td>
+                <td>基于 Optimal Brain Surgeon 与近似二阶 Hessian 逆矩阵，逐列取整量化权重的同时，将当前列的量化误差按最优比例补偿叠加到未量化的剩余列中。</td>
+                <td>3–4 bit 静态权重量化经典基线，困惑度（PPL）控制良好。</td>
+                <td>依赖校准集（存在域外退化风险）；超大 MoE 模型校准耗时长。</td>
+              </tr>
+              <tr>
+                <td><strong>SmoothQuant</strong><sup class="cite"><a href="#ref-7">[7]</a></sup><br>(ICML 2023)</td>
+                <td>W8A8 INT8<br>(粗粒度场景)</td>
+                <td>针对激活存在通道尖峰而权重平滑的规律，做数学等价变换 <i>Y</i> = (<i>X</i> &middot; diag(<i>s</i>)<sup>&minus;1</sup>)(diag(<i>s</i>) &middot; <i>W</i>)，把激活的量化难度平滑迁移至权重侧。</td>
+                <td>成功打通常规 INT8 Tensor Core 的 W8A8 推理，兼得算力与带宽。</td>
+                <td>面对 MoE 与长尾分布激活时，单靠通道平滑仍有精度波动风险。</td>
+              </tr>
+              <tr>
+                <td><strong>QuaRot / SpinQuant</strong><sup class="cite"><a href="#ref-9">[9]</a></sup><sup class="cite"><a href="#ref-10">[10]</a></sup><br>(2024)</td>
+                <td>W4A4 / INT4<br>极限低比特</td>
+                <td>利用正交矩阵 <i>Q</i>（如 Hadamard 矩阵或 Cayley 优化学习得到的旋转矩阵）满足 <i>Q Q</i><sup>T</sup> = <i>I</i> 的不变性，旋转权重与激活，把少数通道的尖峰能量均匀打散至全维度。</td>
+                <td>从根源消除通道离群值，是 4-bit 权激双量化与 4-bit KV 的关键手段。</td>
+                <td>部分层需引入在线 Hadamard 变换算子，增加图复杂度与小 Batch 延迟。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Section 4: Hardware & Model Vendors -->
+      <section id="sec-ecosystem">
+        <h2><span class="sec-num">4</span> 硬件厂商软硬支持格局与模型厂商选型透视</h2>
+        <p>
+          量化格式的选择高度受限于芯片矩阵核的底层指令集（ISA）能力。本节严格区分<strong>“硬件原生指令支持”</strong>与<strong>“算子库软件实现”</strong>两个层次，梳理主流芯片格局，并客观回答 GLM-5.3 与 DeepSeek-V4.1-Flash 的格式分化动因。
+        </p>
+
+        <h3 id="sec-eco-hw">4.1 主流 AI 芯片硬件与软件生态全景对比</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>硬件平台 / 架构</th>
+                <th>原生 FP8 矩阵乘<br>(无硬件块缩放)</th>
+                <th>硬件原生 Block Scale<br>(MXFP8 / MXFP4 / NVFP4)</th>
+                <th>原生 INT8</th>
+                <th>私有/扩展格式与关键 ISA / 算子栈说明</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>NVIDIA Hopper</strong><br>H100 / H200 / H800 (SM90)</td>
+                <td><span class="tag tag-green">原生支持</span><br><span style="font-size:11.5px;color:#047857;"><code>wgmma.mma_async</code></span></td>
+                <td><span class="tag tag-rose">硬件不支持！</span><br><span style="font-size:11.5px;color:#9f1239;">由 CUTLASS / DeepGEMM 软件实现</span></td>
+                <td><span class="tag tag-green">原生支持</span></td>
+                <td>FP8 WGMMA 无硬件 Scale 操作数且内部仅保留 ~14-bit 累加尾数；<code>[128,128]</code> 块缩放靠软件每 128 步 CUDA Core FP32 提升实现<sup class="cite"><a href="#ref-11">[11]</a></sup><sup class="cite"><a href="#ref-12">[12]</a></sup>；无原生 FP4。</td>
+              </tr>
+              <tr>
+                <td><strong>NVIDIA Blackwell</strong><br>B200 / GB200 / B300 (SM100)</td>
+                <td><span class="tag tag-green">原生增强</span></td>
+                <td><span class="tag tag-green">硬件原生支持</span><br><span style="font-size:11.5px;color:#047857;"><code>tcgen05.mma...block_scale</code></span></td>
+                <td><span class="tag tag-green">原生支持</span></td>
+                <td>第 5 代 Tensor Core 硬件直接从 TMEM 读取 SFA/SFB 缩放因子<sup class="cite"><a href="#ref-2">[2]</a></sup>；同时原生支持开放 <strong>OCP MXFP8/MXFP6/MXFP4 (UE8M0)</strong> 与私有 <strong>NVFP4 (E4M3 Scale)</strong><sup class="cite"><a href="#ref-3">[3]</a></sup>。</td>
+              </tr>
+              <tr>
+                <td><strong>AMD Instinct</strong><br>MI350X / MI355X (CDNA4)</td>
+                <td><span class="tag tag-green">原生支持</span></td>
+                <td><span class="tag tag-green">硬件原生支持</span><br><span style="font-size:11.5px;color:#047857;"><code>v_mfma_scale_*</code></span></td>
+                <td><span class="tag tag-green">原生支持</span></td>
+                <td>全面押注开放 OCP 微缩标准（原生 MXFP8 / MXFP6 / MXFP4，UE8M0 块缩放），配套 AMD Quark + vLLM/SGLang；不支持私有 NVFP4 需在线重映射<sup class="cite"><a href="#ref-4">[4]</a></sup>。</td>
+              </tr>
+              <tr>
+                <td><strong>华为昇腾 Ascend 950</strong><br>950PR / 950DT</td>
+                <td><span class="tag tag-green">原生支持</span><br><span style="font-size:11.5px;color:#475569;">(公开宣称 ~1 PF)</span></td>
+                <td><span class="tag tag-green">公开规划/宣称原生</span><br><span style="font-size:11.5px;color:#475569;">MXFP8 / MXFP4 (~2 PF)</span></td>
+                <td><span class="tag tag-green">原生支持</span><br><span style="font-size:11.5px;color:#64748b;">(910B 主力)</span></td>
+                <td>较 910B 补齐低精度浮点短板；同时主推华为自研锥形浮点 <strong>HiFloat8 (HiF8)</strong><sup class="cite"><a href="#ref-5a">[5a]</a></sup> 与 <strong>HiFloat4 (HiF4)</strong><sup class="cite"><a href="#ref-5b">[5b]</a></sup>，并开放 Ascend 适配库支持微缩格式。</td>
+              </tr>
+              <tr>
+                <td><strong>Google TPU</strong><br>v6e Trillium → v7 Ironwood</td>
+                <td>v6e 无原生 FP8<br><span class="tag tag-green">v7 首次原生 FP8</span></td>
+                <td>v7 走软件/VPU 适配<br><span style="font-size:11.5px;color:#64748b;">(下一代规划原生 MX)</span></td>
+                <td><span class="tag tag-green">全系原生</span></td>
+                <td>v5p/v6e 主打 BF16 + INT8；v7 Ironwood 首次在 MXU 内引入原生 FP8（4.6 PFLOPS）<sup class="cite"><a href="#ref-5c">[5c]</a></sup>，MXFP4 当前主要通过软件反量化兼容。</td>
+              </tr>
+              <tr class="highlight-row">
+                <td><strong>本团队目标 NPU</strong><br>(BF16 矩阵核 + 强向量核)</td>
+                <td><span class="tag tag-amber">无矩阵核原生</span><br><span style="font-size:11.5px;color:#92400e;">软件解包 ~7000 cyc/tile</span></td>
+                <td><span class="tag tag-amber">无矩阵核原生</span><br><span style="font-size:11.5px;color:#047857;">向量端 fmul 极速融合 UE8M0 (1500~2000 cyc)</span></td>
+                <td><span class="tag tag-blue">向量极速转 BF16</span><br><span style="font-size:11.5px;color:#475569;">(W8A16；未来可演进 W8A8)</span></td>
+                <td>以 BF16 矩阵核为主力，利用向量全 Shuffle + <code>sra</code> + <code>cvt.bf16.s16</code> + <code>fmul.bf16</code> 极速反量化离线 <strong>Int8 + UE8M0</strong> 权重并沿全 K 连续累加<sup class="cite"><a href="#ref-18">[18]</a></sup>。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 id="sec-eco-hopper-bw">4.2 关键硬件概念澄清：Hopper 软件块缩放 vs Blackwell <code>tcgen05</code> 硬件块缩放</h3>
+        <div class="callout">
+          <div class="callout-title">严防软硬件混淆：为什么不能说“H100/H200 原生支持 Block FP8”？</div>
+          <ul>
+            <li><strong>NVIDIA Hopper（H100/H200, SM90）仅硬件原生支持无缩放 FP8 WGMMA，不支持硬件 Block Scale：</strong>Hopper 的 <code>wgmma.mma_async</code> 指令直接接收 FP8 矩阵片段执行 <code>FP8 × FP8 → FP32</code>，指令本身<strong>没有任何 Scale 操作数端口</strong>。更关键的是，DeepSeek-V3 技术报告<sup class="cite"><a href="#ref-11">[11]</a></sup>与 <code>DeepGEMM</code><sup class="cite"><a href="#ref-12">[12]</a></sup> 的实测揭示：Hopper FP8 WGMMA 内部采用低位宽定点累加器，仅保留对齐后最高的约 <strong>14-bit</strong> 有效精度。因此，DeepSeek-V3 与 GLM-5 所采用的 <strong><code>[128,128]</code> 权重块 + <code>[1,128]</code> 激活块 FP32 Scale 完全是算子库（CUTLASS / DeepGEMM）在软件层编排的</strong>——每跑完 4 次 <code>K=32</code> 的 WGMMA（即每 128 个 K 元素），由 CUDA Core 软件将中间结果提升（Promotion）到高精度 FP32 累加器，并在软件端乘上 FP32 Block Scale。</li>
+            <li><strong>NVIDIA Blackwell（B200/GB200, SM100）才真正把 Block Scale 硬件化：</strong>Blackwell 引入第 5 代 Tensor Core 指令 <code>tcgen05.mma</code>（例如 <code>tcgen05.mma.cta_group.kind::mxf8f6f4.block_scale</code> 与 <code>kind::mxf4nvf4.block_scale</code>）<sup class="cite"><a href="#ref-2">[2]</a></sup>。该指令由单线程发射，直接从专用片上 <strong>Tensor Memory (TMEM)</strong> 消费权重/激活及其对应的块缩放张量（SFA/SFB，即 <code>UE8M0</code> 或 <code>E4M3</code>），<strong>在硬件矩阵核内部一步完成缩放累加</strong>，不再占用 CUDA Core 执行周期性软件 FP32 乘加（AMD CDNA4 的 <code>v_mfma_scale_*</code> 同理<sup class="cite"><a href="#ref-4">[4]</a></sup>）。</li>
+          </ul>
+        </div>
+
+        <h3 id="sec-eco-models">4.3 深度剖析：为什么 GLM-5.3 与 DeepSeek-V4.1-Flash 选择了不同的量化格式？</h3>
+        <p>
+          结合上述软硬代际分水岭，我们可以非常清晰、客观地回答管理层的核心问题：为什么 <strong>~744B 的 GLM-5.3</strong> 采用 <code>FP8 E4M3FN with [128,128] FP32 Scale</code>，而 <strong>~552B 骨干 + 196B Engram 的 DeepSeek-V4.1-Flash</strong> 采用 <code>FP8 with [32,32] UE8M0 Scale + MoE MXFP4 [1,32]</code>？这与 DeepSeek 需要兼顾 H200 / B200 / 昇腾 950 高度相关。
+        </p>
+
+        <!-- SVG 3: Hardware-Model Ecosystem Mapping (1080px wide, zero overflow) -->
+        <div class="figure">
+          <div class="figure-header">
+            <div class="figure-title">图 3：前沿模型发布格式与多硬件平台兼容性映射（“硬件最大公约数”逻辑）</div>
+            <div class="figure-sub">解析 GLM-5.3 存量 Hopper 稳态生态 vs DeepSeek-V4.1-Flash 跨代跨平台 OCP 微缩标准路线</div>
+          </div>
+          <div class="svg-box">
+            <svg viewBox="0 0 1080 344" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif">
+              <defs>
+                <marker id="a-bl" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#2563eb"/></marker>
+                <marker id="a-gr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#059669"/></marker>
+                <marker id="a-am" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#d97706"/></marker>
+                <marker id="a-vi" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#7c3aed"/></marker>
+              </defs>
+
+              <!-- Column Titles -->
+              <text x="150" y="22" font-size="13.5" font-weight="800" fill="#334155" text-anchor="middle">前沿模型官方发布格式</text>
+              <text x="530" y="22" font-size="13.5" font-weight="800" fill="#334155" text-anchor="middle">格式枢纽与软硬实现机制</text>
+              <text x="915" y="22" font-size="13.5" font-weight="800" fill="#334155" text-anchor="middle">目标算力平台</text>
+
+              <!-- Left: Models (x=14, w=272) -->
+              <rect x="14" y="38" width="272" height="114" rx="10" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.8"/>
+              <text x="28" y="61" font-size="14" font-weight="800" fill="#1e3a8a">GLM-5.2 / GLM-5.3 (~744B)</text>
+              <text x="28" y="81" font-size="11.8" font-weight="700" fill="#2563eb">FP8 E4M3 + [128,128] FP32 Scale</text>
+              <text x="28" y="102" font-size="11.2" fill="#475569">• 78 层 256 专家（激活 ~40B）</text>
+              <text x="28" y="120" font-size="11.2" fill="#475569">• 复用 DeepSeek-V3 成熟软件缩放生态</text>
+              <text x="28" y="138" font-size="10.8" fill="#475569">• 存量 H100/H200 零摩擦，稳态 8-bit</text>
+
+              <rect x="14" y="172" width="272" height="154" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="1.8"/>
+              <text x="28" y="195" font-size="13" font-weight="800" fill="#065f46">DeepSeek-V4.1-Flash (552B+196B)</text>
+              <text x="28" y="215" font-size="11.8" font-weight="700" fill="#047857">Dense/Attn: FP8 [32,32] UE8M0</text>
+              <text x="28" y="233" font-size="11.8" font-weight="700" fill="#047857">MoE Experts: MXFP4 [1,32] UE8M0</text>
+              <text x="28" y="255" font-size="11.2" fill="#475569">• 40 层 384 专家 + 196B Engram 记忆</text>
+              <text x="28" y="273" font-size="11.2" fill="#475569">• 放弃 FP32 Scale，全面拥抱 UE8M0</text>
+              <text x="28" y="291" font-size="11.2" fill="#475569">• 避开私有 NVFP4，选开放 OCP 标准</text>
+              <text x="28" y="309" font-size="11.2" fill="#475569">  实现“一套权重通吃多代多国芯片”</text>
+
+              <!-- Middle: Bridges (x=384, w=292) -->
+              <rect x="384" y="44" width="292" height="74" rx="9" fill="#f8fafc" stroke="#94a3b8"/>
+              <text x="530" y="67" font-size="12" font-weight="700" fill="#1e293b" text-anchor="middle">Hopper 软件块缩放 (DeepGEMM / CUTLASS)</text>
+              <text x="530" y="87" font-size="11" fill="#475569" text-anchor="middle">硬件只做无缩放 FP8 WGMMA（~14b 内部累加）</text>
+              <text x="530" y="105" font-size="11" fill="#64748b" text-anchor="middle">算子库每 128 步 CUDA Core 软件乘 FP32 Scale</text>
+
+              <rect x="384" y="142" width="292" height="88" rx="9" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.8"/>
+              <text x="530" y="164" font-size="12.5" font-weight="800" fill="#92400e" text-anchor="middle">OCP UE8M0 + MX 硬件原生标准枢纽</text>
+              <text x="530" y="184" font-size="11" fill="#78350f" text-anchor="middle">纯 2 的幂次缩放，硬件矩阵核直接消费 Scale</text>
+              <text x="530" y="201" font-size="11" fill="#78350f" text-anchor="middle">成为 B200 / MI350X / 昇腾 950 共同公约数</text>
+              <text x="530" y="218" font-size="10.8" fill="#92400e" text-anchor="middle">存量 H200 亦可用 W4A16/软件解包兼容降带宽</text>
+
+              <rect x="384" y="252" width="292" height="74" rx="9" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.8"/>
+              <text x="530" y="275" font-size="12.5" font-weight="800" fill="#5b21b6" text-anchor="middle">本团队离线转换收口路径</text>
+              <text x="530" y="294" font-size="11.2" fill="#4c1d95" text-anchor="middle">离线转码 → Int8 + UE8M0 ([16,16] / [32,32])</text>
+              <text x="530" y="312" font-size="11" fill="#5b21b6" text-anchor="middle">一套算子同时承接 GLM-5.3 与 V4.1 FP8 层</text>
+
+              <!-- Right: Hardware Targets (x=766, w=298) -->
+              <rect x="766" y="38" width="298" height="62" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+              <text x="780" y="61" font-size="12.5" font-weight="700" fill="#0f172a">NVIDIA H100 / H200 (Hopper)</text>
+              <text x="780" y="82" font-size="11.2" fill="#475569">FP8 WGMMA + 软件缩放；MXFP4 走 W4A16</text>
+
+              <rect x="766" y="112" width="298" height="64" rx="8" fill="#ffffff" stroke="#059669"/>
+              <text x="780" y="135" font-size="12.5" font-weight="700" fill="#065f46">NVIDIA B200 / AMD MI350X</text>
+              <text x="780" y="156" font-size="10.6" fill="#475569">tcgen05 / v_mfma_scale 原生 MXFP8/MXFP4</text>
+
+              <rect x="766" y="188" width="298" height="64" rx="8" fill="#ffffff" stroke="#059669"/>
+              <text x="780" y="211" font-size="12.5" font-weight="700" fill="#065f46">华为昇腾 950 (950PR / 950DT)</text>
+              <text x="780" y="232" font-size="10.8" fill="#475569">面向 UE8M0 / MXFP8 / MXFP4 / HiF8 演进</text>
+
+              <rect x="766" y="264" width="298" height="62" rx="8" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.6"/>
+              <text x="780" y="287" font-size="12.5" font-weight="800" fill="#5b21b6">本团队目标 NPU 平台</text>
+              <text x="780" y="308" font-size="10.6" fill="#4c1d95">Int8+UE8M0 全 Shuffle 解包 + BF16 矩阵核</text>
+
+              <!-- Arrows Left to Middle -->
+              <path d="M 286 81 L 378 81" stroke="#2563eb" stroke-width="2" fill="none" marker-end="url(#a-bl)"/>
+              <path d="M 286 120 C 330 120, 336 276, 378 276" stroke="#7c3aed" stroke-width="1.8" stroke-dasharray="4 3" fill="none" marker-end="url(#a-vi)"/>
+              <path d="M 286 218 L 378 190" stroke="#059669" stroke-width="2.2" fill="none" marker-end="url(#a-gr)"/>
+              <path d="M 286 286 L 378 294" stroke="#7c3aed" stroke-width="1.8" stroke-dasharray="4 3" fill="none" marker-end="url(#a-vi)"/>
+
+              <!-- Arrows Middle to Right -->
+              <path d="M 676 74 L 760 66" stroke="#2563eb" stroke-width="2" fill="none" marker-end="url(#a-bl)"/>
+              <path d="M 676 164 C 718 164, 720 82, 760 82" stroke="#d97706" stroke-width="1.6" stroke-dasharray="4 3" fill="none" marker-end="url(#a-am)"/>
+              <path d="M 676 180 L 760 146" stroke="#059669" stroke-width="2.2" fill="none" marker-end="url(#a-gr)"/>
+              <path d="M 676 196 L 760 218" stroke="#059669" stroke-width="2.2" fill="none" marker-end="url(#a-gr)"/>
+              <path d="M 676 292 L 760 292" stroke="#7c3aed" stroke-width="2.2" fill="none" marker-end="url(#a-vi)"/>
+            </svg>
+          </div>
+          <div class="figure-caption">
+            说明：实线代表官方原生格式直接运行或硬件原生执行路径，虚线代表兼容降级（如 H200 W4A16）或离线转换收口路径。
+          </div>
+        </div>
+
+        <div class="card-grid-2">
+          <div class="info-card">
+            <h4>为什么 GLM-5.3（~744B）沿用 <code>FP8 [128,128] FP32 Scale</code>？</h4>
+            <ol style="padding-left: 18px; margin-top: 8px;">
+              <li><strong>最大化兼容存量 Hopper 集群与软件生态：</strong><code>[128,128]</code> FP32 Scale 与 DeepSeek-V3<sup class="cite"><a href="#ref-11">[11]</a></sup> 在 DeepGEMM / CUTLASS / vLLM / SGLang 上打磨最久的 Hopper 软件分块缩放内核完全一致，能够零摩擦覆盖当前占比最大的存量 H100/H200/H800 部署池。</li>
+              <li><strong>稳态 8-bit 精度风险最低：</strong>GLM-5.2 / 5.3（78 层、256 专家，主打复杂 Coding 与 Agentic 工程能力<sup class="cite"><a href="#ref-15">[15]</a></sup>）全量保持 8-bit 权重，规避了 4-bit 混合精度训练或 QAT 可能引入的推理长尾波动与工程调优成本。</li>
+            </ol>
+          </div>
+          <div class="info-card">
+            <h4>为什么 DeepSeek-V4.1-Flash（~552B+196B）转向 <code>FP8 [32,32] UE8M0 + MoE MXFP4</code>？</h4>
+            <ol style="padding-left: 18px; margin-top: 8px;">
+              <li><strong>明确面向新一代国产与国际多硬件公约数（实证 + 架构分析）：</strong>DeepSeek 在 2025 年发布 <strong>DeepSeek-V3.1</strong> 时即在官方 HuggingFace 仓库明确声明 <em>“UE8M0 FP8 is designed for soon-to-be-released next-generation domestic chips”</em><sup class="cite"><a href="#ref-13">[13]</a></sup>。到 V4.1-Flash<sup class="cite"><a href="#ref-14">[14]</a></sup>，MoE 进一步引入 OCP <strong>MXFP4（UE8M0）</strong>——该标准恰好同时被 <strong>NVIDIA B200（<code>tcgen05</code>）</strong><sup class="cite"><a href="#ref-2">[2]</a></sup>、<strong>AMD MI350X（<code>v_mfma_scale</code>）</strong><sup class="cite"><a href="#ref-4">[4]</a></sup> 与<strong>华为昇腾 950</strong> 纳入原生支持版图；拒绝 NVIDIA 私有 NVFP4 避免了单一供应商锁定。</li>
+              <li><strong>同时兼顾存量 H200 显存与带宽红利：</strong>384 专家 MoE 权重压至 MXFP4（4.25 bit/参数）后，即便在无原生 FP4 算力的 H200 上，Decode 阶段通过 W4A16 融合反量化依然可将权重搬运带宽减半、显著缩减单实例部署卡数。</li>
+              <li><strong>分级精度保护：</strong>参数占比小但极敏感的 Attention / Dense / Engram 层保留 <code>FP8 [32,32] UE8M0</code>（二维块保持转置不变性，且 UE8M0 消除 FP32 乘法），守住 1M 长上下文与复杂推理精度底线<sup class="cite"><a href="#ref-14">[14]</a></sup><sup class="cite"><a href="#ref-19">[19]</a></sup>。</li>
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 5: Int8 + UE8M0 Proposal -->
+      <section id="sec-proposal">
+        <h2><span class="sec-num">5</span> 本平台推进 Int8 + UE8M0 离线量化方案的系统论证</h2>
+        <p>
+          回到本平台的真实硬件边界：当目标 NPU 主力矩阵核为 <strong>BF16</strong>（不具备硬件原生 FP8/FP4 矩阵乘指令，且软件解包 FP8 代价高昂）时，直接在线消费 FP8 权重会使向量单元成为严重瓶颈。因此，我们将源模型（GLM-5.3 的 FP8/BF16 或 DeepSeek-V4.1-Flash 的 FP8 层）离线转换为<strong>标准二进制补码 <code>Int8 [-128, 127]</code> + <code>UE8M0</code> 块缩放（推荐 <code>[16, 16]</code>，兼容 <code>[32, 32]</code>）</strong>，执行 W8A16 极速反量化矩阵乘<sup class="cite"><a href="#ref-17">[17]</a></sup><sup class="cite"><a href="#ref-18">[18]</a></sup>。
+        </p>
+
+        <h3 id="sec-prop-simd">5.1 量化与反量化核心实现（Python 参考代码）及 NPU SIMD 实测突破</h3>
+
+        <h4>5.1.1 离线量化与推理反量化参考实现（Python / PyTorch）</h4>
+        <p>
+          为了便于矩阵乘算子团队与评审人员直观理解本方案的数值语义，下面给出与生产转换脚本 <code>vllm_scripts/tools/convert_glm_int8_ue8m0.py</code><sup class="cite"><a href="#ref-17">[17]</a></sup> 完全一致的极简参考实现（包含：<strong>① 离线块级 Int8 + UE8M0 3 候选 MSE 量化</strong>、<strong>② 与目标 NPU 逐比特等价的 BF16 反量化</strong>，以及<strong>③ 过渡期从官方 FP8 <code>[128, 128]</code> 还原至高精浮点时的非整除维度保护</strong>）：
+        </p>
+
+        <div class="code-card">
+          <div class="code-header">
+            <span>Int8 + UE8M0 离线量化与推理反量化参考代码（已逐比特校验通过）</span>
+            <span class="lang-pill">Python · PyTorch</span>
+          </div>
+          <pre class="code-block"><span class="kw">import</span> torch
+
+<span class="kw">def</span> <span class="fn">quantize_int8_ue8m0</span>(w: torch.Tensor, block_n: <span class="nb">int</span> = <span class="nb">16</span>, block_k: <span class="nb">int</span> = <span class="nb">16</span>):
+    <span class="st">"""离线量化：将 BF16/FP32 权重 [N, K] 转为 (int8 [N, K], uint8 UE8M0 [N/bn, K/bk])"""</span>
+    n, k = w.shape
+    nb, kb = n // block_n, k // block_k
+    blocks = w.float().view(nb, block_n, kb, block_k).permute(<span class="nb">0</span>, <span class="nb">2</span>, <span class="nb">1</span>, <span class="nb">3</span>).reshape(nb, kb, -<span class="nb">1</span>)
+
+    <span class="cm"># 1. 计算无裁剪上界指数 u_ceil (scale = 2^(u - 127))，钳位到 SIMD 安全区间 [1, 247]</span>
+    s_req = torch.maximum(blocks.amax(-<span class="nb">1</span>) / <span class="nb">127.0</span>, -blocks.amin(-<span class="nb">1</span>) / <span class="nb">128.0</span>)
+    is_zero = s_req &lt;= <span class="nb">0.0</span>
+    u_ceil = (torch.ceil(torch.log2(s_req.clamp(min=<span class="nb">2.0</span>**-<span class="nb">126</span>))).to(torch.int32) + <span class="nb">127</span>).clamp(<span class="nb">1</span>, <span class="nb">247</span>)
+
+    <span class="cm"># 2. 离线 3 候选 MSE 优选：{u_ceil, u_ceil - 1, u_ceil - 2} 择块 L2 重建误差最小解（零推理开销）</span>
+    ones = torch.ones_like(u_ceil, dtype=torch.float32)
+    best_err = torch.full((nb, kb), <span class="nb">float</span>(<span class="st">"inf"</span>), device=w.device)
+    best_u, best_q = u_ceil.clone(), torch.zeros_like(blocks, dtype=torch.int8)
+    <span class="kw">for</span> shift <span class="kw">in</span> (<span class="nb">0</span>, <span class="nb">1</span>, <span class="nb">2</span>):
+        u_cand = (u_ceil - shift).clamp(min=<span class="nb">1</span>)
+        s_cand = torch.ldexp(ones, u_cand - <span class="nb">127</span>).unsqueeze(-<span class="nb">1</span>)
+        q_cand = torch.round(blocks / s_cand).clamp(-<span class="nb">128.0</span>, <span class="nb">127.0</span>)
+        err = (q_cand * s_cand - blocks).square().sum(dim=-<span class="nb">1</span>)
+        better = err &lt; best_err
+        best_err = torch.where(better, err, best_err)
+        best_u = torch.where(better, u_cand, best_u)
+        best_q = torch.where(better.unsqueeze(-<span class="nb">1</span>), q_cand.to(torch.int8), best_q)
+
+    <span class="cm"># 全零块统一置 u = 127 (即 2^0 = 1.0)，还原 [N, K] 布局</span>
+    best_u = torch.where(is_zero, torch.full_like(best_u, <span class="nb">127</span>), best_u)
+    best_q = torch.where(is_zero.unsqueeze(-<span class="nb">1</span>), torch.zeros_like(best_q), best_q)
+    w_int8 = best_q.view(nb, kb, block_n, block_k).permute(<span class="nb">0</span>, <span class="nb">2</span>, <span class="nb">1</span>, <span class="nb">3</span>).reshape(n, k).contiguous()
+    <span class="kw">return</span> w_int8, best_u.to(torch.uint8).contiguous()
+
+
+<span class="kw">def</span> <span class="fn">dequantize_int8_ue8m0_to_bf16</span>(w_int8: torch.Tensor, scale_u8: torch.Tensor,
+                                  block_n: <span class="nb">int</span> = <span class="nb">16</span>, block_k: <span class="nb">int</span> = <span class="nb">16</span>) -&gt; torch.Tensor:
+    <span class="st">"""推理反量化：与目标 NPU `cvt.bf16.s16 + fmul.bf16(u &lt;&lt; 7)` 逐比特 100% 等价"""</span>
+    n, k = w_int8.shape
+    nb, kb = n // block_n, k // block_k
+    <span class="cm"># UE8M0 字节 u ∈ [1, 254] 左移 7 位直接拼成合法 BF16 缩放因子 2^(u - 127)</span>
+    scale_bf16 = (scale_u8.to(torch.int32) &lt;&lt; <span class="nb">7</span>).to(torch.uint16).view(torch.bfloat16)
+    <span class="cm"># 任意 int8 转 BF16 零舍入，乘纯 2 的幂次 scale_bf16 亦零舍入，直接供 BF16 矩阵核全 K 连续累加</span>
+    w_bf16 = w_int8.to(torch.bfloat16).view(nb, block_n, kb, block_k)
+    <span class="kw">return</span> (w_bf16 * scale_bf16.view(nb, <span class="nb">1</span>, kb, <span class="nb">1</span>)).reshape(n, k)
+
+
+<span class="kw">def</span> <span class="fn">dequantize_official_fp8_block</span>(w_fp8: torch.Tensor, scale_f32: torch.Tensor,
+                                  src_block_size: <span class="nb">tuple</span>[<span class="nb">int</span>, <span class="nb">int</span>] = (<span class="nb">128</span>, <span class="nb">128</span>)) -&gt; torch.Tensor:
+    <span class="st">"""过渡路径前置步骤：从官方 FP8 [128,128] 还原高精浮点（必须显式传块尺寸防 576 非整除错位）"""</span>
+    n, k = w_fp8.shape
+    bn, bk = src_block_size
+    s_full = scale_f32.float().repeat_interleave(bn, dim=<span class="nb">0</span>).repeat_interleave(bk, dim=<span class="nb">1</span>)[:n, :k]
+    <span class="kw">return</span> w_fp8.float() * s_full  <span class="cm"># 随后直接送入 quantize_int8_ue8m0(..., 16, 16)</span></pre>
+        </div>
+
+        <h4>5.1.2 真实目标 NPU 四步全 Shuffle SIMD 反量化流水线与实测收益</h4>
+        <p>
+          上述反量化代码之所以能在硬件上跑到极致，是因为前期设计参考<sup class="cite"><a href="#ref-18">[18]</a></sup>从数学上证明了全部 256 &times; 256 = 65,536 种 <code>(int8, ue8m0)</code> 组合在 <code>BF16</code> 中均为 <strong>100% 精确无舍入值</strong>（彻底省去 <code>int8 → int32 → fp32 → mul → rne_bf16</code> 的 4 倍拆包与舍入开销）。<strong>目前在真实目标 NPU 上已确认落地最优的「四步全 Shuffle 极速转换方案」</strong>（对应选型指南最高优先级路线 1b 变体）：
+        </p>
+        <ol>
+          <li><strong>全 Shuffle 选择装入每 16-bit 通道高 8-bit</strong>：一步把紧凑排列的 <code>int8</code> 字节直接放入各 16-bit 向量通道高字节（<code>bits [15:8]</code>），省去传统多级 unpack 指令；</li>
+          <li><strong>算术右移 8 位（<code>sra.s16 #8</code>）</strong>：单条定长算术右移同时完成归位与 <code>int8 → int16</code> 带符号位扩展；</li>
+          <li><strong>硬件原生整型转 BF16（<code>cvt.bf16.s16</code>）</strong>：全程保持 16-bit 满宽通道（吞吐为 FP32 路径的 2×），无分支、无 <code>clz</code>、无 <code>0</code> / <code>-128</code> 特判；</li>
+          <li><strong>原生 BF16 乘折入缩放（<code>fmul.bf16</code>）</strong>：循环外准备一次 <code>v_sc = vdup(uint16(u) &lt;&lt; 7)</code>，内层单条 <code>fmul.bf16</code> 即把块缩放直接折入权重 BF16 指数（硬件无分支精确覆盖 <code>scale ∈ [1, 254]</code>；离线量化脚本主动钳位在 <code>[1, 247]</code> 以兼顾所有五级 SIMD 路线），随后 BF16 矩阵核可<strong>沿完整 K 维连续累加</strong>，彻底免去每块出栈乘 FP32 scale 的累加器中断开销。</li>
+        </ol>
+
+        <!-- SVG 4: Real NPU 4-step pipeline (1080px wide, clean margins) -->
+        <div class="figure">
+          <div class="figure-header">
+            <div class="figure-title">图 4：真实目标 NPU 已确认的 Int8 + UE8M0 四步全 Shuffle SIMD 反量化流水线</div>
+            <div class="figure-sub">全程 16-bit 满宽执行，零分支、零查表、零 FP32 往返，精确覆盖 scale ∈ [1, 254]</div>
+          </div>
+          <div class="svg-box">
+            <svg viewBox="0 0 1080 232" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif">
+              <defs>
+                <marker id="arr-npu" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#2563eb"/></marker>
+              </defs>
+
+              <!-- Step 0: x=14, w=156 -->
+              <rect x="14" y="38" width="156" height="126" rx="9" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5"/>
+              <text x="92" y="61" font-size="12.5" font-weight="700" fill="#334155" text-anchor="middle">输入紧凑权重</text>
+              <rect x="26" y="74" width="132" height="28" rx="4" fill="#7c3aed"/>
+              <text x="92" y="92" font-size="11.2" font-weight="700" fill="#fff" text-anchor="middle">i8[0] | i8[1] | ...</text>
+              <text x="92" y="122" font-size="11" fill="#475569" text-anchor="middle">连续 Int8 字节流</text>
+              <text x="92" y="140" font-size="11" fill="#475569" text-anchor="middle">每元素 1 Byte (2× 压缩)</text>
+
+              <line x1="172" y1="101" x2="202" y2="101" stroke="#2563eb" stroke-width="2" marker-end="url(#arr-npu)"/>
+
+              <!-- Step 1: x=208, w=182 -->
+              <rect x="208" y="30" width="182" height="142" rx="9" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.6"/>
+              <rect x="208" y="30" width="182" height="28" rx="9" fill="#1d4ed8"/>
+              <text x="299" y="48" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">Step 1: 全 Shuffle 选择</text>
+              <rect x="220" y="70" width="76" height="26" rx="3" fill="#7c3aed"/>
+              <text x="258" y="87" font-size="10.8" font-weight="700" fill="#fff" text-anchor="middle">Int8 (高8b)</text>
+              <rect x="299" y="70" width="79" height="26" rx="3" fill="#e2e8f0"/>
+              <text x="338" y="87" font-size="10.5" fill="#64748b" text-anchor="middle">低8b (任意)</text>
+              <text x="299" y="118" font-size="11.2" fill="#1e3a8a" font-weight="700" text-anchor="middle">直接装入 16b 通道高字节</text>
+              <text x="299" y="137" font-size="10.8" fill="#475569" text-anchor="middle">单步重排就位</text>
+              <text x="299" y="154" font-size="10.8" fill="#475569" text-anchor="middle">无需额外 sext/zext</text>
+
+              <line x1="392" y1="101" x2="422" y2="101" stroke="#2563eb" stroke-width="2" marker-end="url(#arr-npu)"/>
+
+              <!-- Step 2: x=428, w=180 -->
+              <rect x="428" y="30" width="180" height="142" rx="9" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.6"/>
+              <rect x="428" y="30" width="180" height="28" rx="9" fill="#1d4ed8"/>
+              <text x="518" y="48" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">Step 2: 算术右移 &gt;&gt; 8</text>
+              <rect x="440" y="70" width="74" height="26" rx="3" fill="#e11d48"/>
+              <text x="477" y="87" font-size="10.8" font-weight="700" fill="#fff" text-anchor="middle">S S S S...</text>
+              <rect x="517" y="70" width="79" height="26" rx="3" fill="#7c3aed"/>
+              <text x="556" y="87" font-size="10.8" font-weight="700" fill="#fff" text-anchor="middle">Int8 (低8b)</text>
+              <text x="518" y="118" font-size="11.2" fill="#1e3a8a" font-weight="700" text-anchor="middle">等价有符号 int16_t</text>
+              <text x="518" y="137" font-size="10.8" fill="#475569" text-anchor="middle">硬件自动符号扩展</text>
+              <text x="518" y="154" font-size="10.8" fill="#475569" text-anchor="middle">精确覆盖 [-128, 127]</text>
+
+              <line x1="610" y1="101" x2="640" y2="101" stroke="#2563eb" stroke-width="2" marker-end="url(#arr-npu)"/>
+
+              <!-- Step 3: x=646, w=178 -->
+              <rect x="646" y="30" width="178" height="142" rx="9" fill="#ecfdf5" stroke="#10b981" stroke-width="1.6"/>
+              <rect x="646" y="30" width="178" height="28" rx="9" fill="#047857"/>
+              <text x="735" y="48" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">Step 3: cvt.bf16.s16</text>
+              <rect x="660" y="70" width="150" height="26" rx="3" fill="#059669"/>
+              <text x="735" y="87" font-size="10.8" font-weight="700" fill="#fff" text-anchor="middle">精确 BF16 (未缩放)</text>
+              <text x="735" y="118" font-size="11.2" fill="#065f46" font-weight="700" text-anchor="middle">硬件直通归一化</text>
+              <text x="735" y="137" font-size="10.8" fill="#475569" text-anchor="middle">100% 零舍入精确表示</text>
+              <text x="735" y="154" font-size="10.8" fill="#475569" text-anchor="middle">免 abs / clz / 查表</text>
+
+              <line x1="826" y1="101" x2="856" y2="101" stroke="#2563eb" stroke-width="2" marker-end="url(#arr-npu)"/>
+
+              <!-- Step 4: x=862, w=204 -->
+              <rect x="862" y="30" width="204" height="142" rx="9" fill="#ecfdf5" stroke="#059669" stroke-width="2"/>
+              <rect x="862" y="30" width="204" height="28" rx="9" fill="#047857"/>
+              <text x="964" y="48" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">Step 4: fmul.bf16</text>
+              <rect x="876" y="70" width="176" height="26" rx="3" fill="#047857"/>
+              <text x="964" y="87" font-size="10.8" font-weight="700" fill="#fff" text-anchor="middle">已缩放精确 BF16 权重</text>
+              <text x="964" y="118" font-size="11.2" fill="#065f46" font-weight="700" text-anchor="middle">乘 v_sc (UE8M0 &lt;&lt; 7)</text>
+              <text x="964" y="137" font-size="10.8" fill="#475569" text-anchor="middle">直供矩阵核沿全 K 连续累加</text>
+              <text x="964" y="154" font-size="10.8" fill="#047857" font-weight="600" text-anchor="middle">免每块中断出栈乘 FP32 scale</text>
+
+              <!-- UE8M0 loop-invariant input -->
+              <rect x="758" y="190" width="308" height="30" rx="6" fill="#fef3c7" stroke="#f59e0b"/>
+              <text x="912" y="209" font-size="10.6" font-weight="700" fill="#92400e" text-anchor="middle">块外准备一次：v_sc = dup(u &lt;&lt; 7) 全块复用</text>
+              <line x1="964" y1="190" x2="964" y2="177" stroke="#d97706" stroke-width="2"/>
+              <polygon points="959,179 964,172 969,179" fill="#d97706"/>
+
+              <!-- Bottom note bar -->
+              <rect x="14" y="190" width="728" height="30" rx="6" fill="#f1f5f9" stroke="#cbd5e1"/>
+              <text x="378" y="209" font-size="11.5" font-weight="600" fill="#1e293b" text-anchor="middle">为何远快于 FP8 解包？FP8 需拆 1S/4E/3M、重偏置 +120、处理 Subnormal (8 项查表/分支) + FP32 块缩放</text>
+            </svg>
+          </div>
+        </div>
+
+        <!-- SVG 5: Performance comparison bar charts (1080px wide) -->
+        <div class="figure">
+          <div class="figure-header">
+            <div class="figure-title">图 5：反量化性能实测对比 — 真实 NPU 周期数（左）与 x86 多路线吞吐佐证（右）</div>
+            <div class="figure-sub">左：目标 NPU [512, 128] Tile Cycle 实测；右：Xeon 8592+ 单核 L2 算力区吞吐 (GB/s)</div>
+          </div>
+          <div class="svg-box">
+            <svg viewBox="0 0 1080 272" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif">
+              <!-- Left Panel: x=10, w=516 -->
+              <rect x="10" y="10" width="516" height="252" rx="8" fill="#f8fafc" stroke="#e2e8f0"/>
+              <text x="268" y="34" font-size="13.5" font-weight="800" fill="#0f172a" text-anchor="middle">真实目标 NPU：[512, 128] 反量化周期（越低越好）</text>
+
+              <line x1="76" y1="216" x2="494" y2="216" stroke="#94a3b8" stroke-width="1.2"/>
+              <line x1="76" y1="56" x2="76" y2="216" stroke="#94a3b8" stroke-width="1.2"/>
+              <line x1="76" y1="176" x2="494" y2="176" stroke="#e2e8f0" stroke-dasharray="3 3"/>
+              <line x1="76" y1="136" x2="494" y2="136" stroke="#e2e8f0" stroke-dasharray="3 3"/>
+              <line x1="76" y1="96" x2="494" y2="96" stroke="#e2e8f0" stroke-dasharray="3 3"/>
+              <text x="68" y="219" font-size="10.8" fill="#64748b" text-anchor="end">0</text>
+              <text x="68" y="179" font-size="10.8" fill="#64748b" text-anchor="end">2000</text>
+              <text x="68" y="139" font-size="10.8" fill="#64748b" text-anchor="end">4000</text>
+              <text x="68" y="99" font-size="10.8" fill="#64748b" text-anchor="end">6000</text>
+              <text x="68" y="59" font-size="10.8" fill="#64748b" text-anchor="end">8000</text>
+
+              <!-- Bar 1: FP8 ~7000 (h=140 -> y=76) -->
+              <rect x="130" y="76" width="96" height="140" rx="6" fill="#dc2626" opacity="0.88"/>
+              <text x="178" y="67" font-size="13" font-weight="800" fill="#b91c1c" text-anchor="middle">~7,000 cyc</text>
+              <text x="178" y="234" font-size="11.8" font-weight="700" fill="#1e293b" text-anchor="middle">FP8 软件反量化</text>
+              <text x="178" y="250" font-size="10.8" fill="#64748b" text-anchor="middle">(现状基线)</text>
+
+              <!-- Bar 2: Int8 + UE8M0 1500~2000 (h=40/30 -> y=176/186) -->
+              <rect x="330" y="176" width="96" height="40" rx="6" fill="#059669" opacity="0.32" stroke="#059669" stroke-dasharray="3 2"/>
+              <rect x="330" y="186" width="96" height="30" rx="6" fill="#059669"/>
+              <text x="378" y="166" font-size="13" font-weight="800" fill="#047857" text-anchor="middle">1,500~2,000 cyc</text>
+              <text x="378" y="234" font-size="11.8" font-weight="700" fill="#065f46" text-anchor="middle">Int8 + UE8M0</text>
+              <text x="378" y="250" font-size="10.8" fill="#047857" text-anchor="middle">(全 Shuffle 四步方案)</text>
+
+              <!-- Speedup Badge -->
+              <rect x="252" y="88" width="154" height="44" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="1.6"/>
+              <text x="329" y="106" font-size="12.5" font-weight="800" fill="#065f46" text-anchor="middle">加速 3.5× ~ 4.7×</text>
+              <text x="329" y="123" font-size="11" fill="#047857" text-anchor="middle">周期缩减 71% ~ 79%</text>
+
+              <!-- Right Panel: x=546, w=524 -->
+              <rect x="546" y="10" width="524" height="252" rx="8" fill="#f8fafc" stroke="#e2e8f0"/>
+              <text x="808" y="34" font-size="13.5" font-weight="800" fill="#0f172a" text-anchor="middle">x86 佐证：Xeon 8592+ 单核 L2 吞吐跃迁 (GB/s)</text>
+
+              <!-- Labels right-aligned at x=716, bars start x=726, max 50 GB/s = 240px -->
+              <text x="716" y="75" font-size="11.2" fill="#475569" text-anchor="end">Scalar 标量查表</text>
+              <rect x="726" y="61" width="23" height="19" rx="4" fill="#94a3b8"/>
+              <text x="756" y="75" font-size="11.2" font-weight="700" fill="#475569">4.73</text>
+
+              <text x="716" y="105" font-size="11.2" fill="#475569" text-anchor="end">AVX2 (FP32 乘 + RNE)</text>
+              <rect x="726" y="91" width="95" height="19" rx="4" fill="#cbd5e1"/>
+              <text x="828" y="105" font-size="11.2" font-weight="700" fill="#475569">19.71</text>
+
+              <text x="716" y="135" font-size="11.2" fill="#475569" text-anchor="end">AVX-512 (128 项 LUT)</text>
+              <rect x="726" y="121" width="102" height="19" rx="4" fill="#f59e0b"/>
+              <text x="835" y="135" font-size="11.2" font-weight="700" fill="#b45309">21.32</text>
+
+              <text x="716" y="165" font-size="11.2" fill="#475569" text-anchor="end">AVX2 (无乘法整数指数)</text>
+              <rect x="726" y="151" width="145" height="19" rx="4" fill="#60a5fa"/>
+              <text x="878" y="165" font-size="11.2" font-weight="700" fill="#1d4ed8">30.18</text>
+
+              <text x="716" y="195" font-size="11.2" fill="#475569" text-anchor="end">AVX-512 BF16 转换</text>
+              <rect x="726" y="181" width="197" height="19" rx="4" fill="#2563eb"/>
+              <text x="930" y="195" font-size="11.2" font-weight="700" fill="#1d4ed8">41.08</text>
+
+              <text x="716" y="225" font-size="11.2" font-weight="700" fill="#065f46" text-anchor="end">路线 2 硬件 CVT 桥接</text>
+              <rect x="726" y="211" width="223" height="19" rx="4" fill="#059669"/>
+              <text x="956" y="225" font-size="11.5" font-weight="800" fill="#047857">46.48 (2.18×)</text>
+
+              <text x="808" y="250" font-size="11" fill="#64748b" text-anchor="middle">印证共性规律：16-bit 原生 CVT + 免查表/免 FP32 路径具备压倒性吞吐优势</text>
+            </svg>
+          </div>
+          <div class="figure-caption">
+            数据来源：左图为目标 NPU 实测参考周期；右图取自内部实测文档 <code>int8_ue8m0_dequant_simd_design.md</code> 第 6 节 Xeon 8592+ 单核 L2 驻留区（64×4096）实测（多核端到端算子吞吐由 306.4 GB/s 提升至 426.9 GB/s）<sup class="cite"><a href="#ref-18">[18]</a></sup>。
+          </div>
+        </div>
+
+        <h3 id="sec-prop-acc">5.2 算子与子图级定量精度对比（以官方 BF16 为黄金基准）</h3>
+
+        <div class="callout amber">
+          <div class="callout-title">⚠️ 评测边界与严谨性声明（重要）</div>
+          <p>
+            本节所有定量精度数据均同步自修订后的内部实测文档 <code>docs/glm-int8-ue8m0-guide.md</code> 第 6 节<sup class="cite"><a href="#ref-17">[17]</a></sup>（基于 <strong>GLM-5.2 ~744B 真实权重</strong>抽样拉取官方 BF16 原版关键层 + 本地全量 FP8 13 层扫描），属于<strong>单矩阵乘算子级（<code>mcpu</code> 实测 W8A16 GEMM <code>RelL2</code>）及局部完整子图级（MLA Attention、DSA Sparse Indexer、Dense MLP、MoE SwiGLU FFN）的定量误差分析</strong>，<strong>不能直接等同于最终端到端大模型基准跑分（MMLU / GSM8K / LiveCodeBench / SWE-bench 等）</strong>。后续必须在矩阵乘适配完成后补齐端到端评测闭环。
+          </p>
+        </div>
+
+        <p><strong>评估基线与对比路径定义：</strong>本节所有误差均以<strong>官方原始 BF16 权重</strong>作为唯一黄金基准（单算子对照 BF16 权重 FP32 累加结果；子图对照完整官方 BF16 子图输出），横向对比以下三条量化路径：</p>
+        <div class="path-grid">
+          <div class="path-card">
+            <div class="path-title"><span class="dot" style="background:#0f172a;"></span> 黄金基准：官方 BF16</div>
+            <p>原始 16-bit BF16 权重（全量 ~1.50 TB），所有相对误差 <code>RelL2</code> 与选词 <code>Miss@2048</code> 均以此为 0% 误差参考点。</p>
+          </div>
+          <div class="path-card">
+            <div class="path-title"><span class="dot" style="background:#64748b;"></span> 路径 ① 官方 FP8 [128,128]</div>
+            <p>官方发布的 <code>FP8 E4M3FN + [128,128] FP32 Scale</code>（现状部署基线），受 3-bit 尾数限制存在 ~2.65% 误差地板。</p>
+          </div>
+          <div class="path-card" style="border-color:#10b981; background:#ecfdf5;">
+            <div class="path-title"><span class="dot" style="background:#059669;"></span> 路径 ② 官方 BF16 → Int8 UE8M0 ★</div>
+            <p>从官方 BF16 直接执行块级 Int8 + UE8M0 MSE 量化（对比 <code>[32,32]</code>、<strong><code>[16,16]</code> 推荐</strong>与 <code>MXINT8 [1,32]</code>），为终态最优路径。</p>
+          </div>
+          <div class="path-card" style="border-color:#f59e0b; background:#fffbeb;">
+            <div class="path-title"><span class="dot" style="background:#f59e0b;"></span> 路径 ③ 官方 FP8 → BF16 → Int8 [16,16]</div>
+            <p>当前仅有官方 FP8 权重时的过渡路径：先按 <code>[128,128]</code> 反量化还原高精浮点，再二次量化为 <code>Int8 [16,16] UE8M0</code>（保留 17 MB <code>wk</code>）。</p>
+          </div>
+        </div>
+
+        <!-- SVG 6: Updated mcpu W8A16 GEMM RelL2 Grouped Bar Chart (1080px wide) -->
+        <div class="figure">
+          <div class="figure-header">
+            <div class="figure-title">图 6：以官方 BF16 为基准 — GLM-5.2 (~744B) 代表性矩阵 mcpu W8A16 GEMM 相对误差（RelL2 %，越低越好）</div>
+            <div class="figure-sub">调用 torch_xcpu.ops 实测（重尾激活 X[256, K] BF16，对照官方 BF16 权重 FP32 累加结果）</div>
+          </div>
+          <div class="svg-box">
+            <svg viewBox="0 0 1080 322" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif">
+              <!-- Legend -->
+              <rect x="22" y="10" width="12" height="12" rx="2" fill="#64748b"/>
+              <text x="39" y="20" font-size="11" fill="#334155">① 官方 FP8 [128,128]</text>
+              <rect x="184" y="10" width="12" height="12" rx="2" fill="#3b82f6"/>
+              <text x="201" y="20" font-size="11" fill="#334155">② 官方BF16→Int8[32,32]</text>
+              <rect x="378" y="10" width="12" height="12" rx="2" fill="#059669"/>
+              <text x="395" y="20" font-size="11" font-weight="700" fill="#065f46">② 官方BF16→Int8[16,16] (推荐)</text>
+              <rect x="614" y="10" width="12" height="12" rx="2" fill="#7c3aed"/>
+              <text x="631" y="20" font-size="11" fill="#334155">② 官方BF16→MXINT8[1,32]</text>
+              <rect x="824" y="10" width="12" height="12" rx="2" fill="#f59e0b"/>
+              <text x="841" y="20" font-size="11" fill="#92400e">③ 官方FP8→BF16→Int8[16,16]</text>
+
+              <!-- Axes: y from 48 (4.0%) to 258 (0.0%) -> 210px = 4.0%, 52.5px per 1% -->
+              <line x1="66" y1="258" x2="1052" y2="258" stroke="#64748b" stroke-width="1.2"/>
+              <line x1="66" y1="48" x2="66" y2="258" stroke="#64748b" stroke-width="1.2"/>
+              <line x1="66" y1="205.5" x2="1052" y2="205.5" stroke="#e2e8f0" stroke-dasharray="3 3"/>
+              <line x1="66" y1="153" x2="1052" y2="153" stroke="#e2e8f0" stroke-dasharray="3 3"/>
+              <line x1="66" y1="100.5" x2="1052" y2="100.5" stroke="#e2e8f0" stroke-dasharray="3 3"/>
+              <line x1="66" y1="48" x2="1052" y2="48" stroke="#e2e8f0" stroke-dasharray="3 3"/>
+
+              <!-- FP8 2.65% floor line -->
+              <line x1="66" y1="119" x2="1052" y2="119" stroke="#dc2626" stroke-width="1.4" stroke-dasharray="5 4"/>
+              <text x="1048" y="112" font-size="11" font-weight="700" fill="#dc2626" text-anchor="end">官方 FP8 误差地板 (~2.65%)</text>
+
+              <text x="58" y="262" font-size="11" fill="#64748b" text-anchor="end">0.0%</text>
+              <text x="58" y="209" font-size="11" fill="#64748b" text-anchor="end">1.0%</text>
+              <text x="58" y="157" font-size="11" fill="#64748b" text-anchor="end">2.0%</text>
+              <text x="58" y="104" font-size="11" fill="#64748b" text-anchor="end">3.0%</text>
+              <text x="58" y="52" font-size="11" fill="#64748b" text-anchor="end">4.0%</text>
+
+              <!-- Group 1: L0 kv_a_proj (mcpu GEMM RelL2: 2.661, 2.326, 1.615, 1.053, 3.087) -->
+              <rect x="104" y="118.3" width="30" height="139.7" rx="3" fill="#64748b"/>
+              <text x="119" y="113" font-size="10.2" fill="#475569" text-anchor="middle">2.66</text>
+              <rect x="139" y="135.9" width="30" height="122.1" rx="3" fill="#3b82f6"/>
+              <text x="154" y="131" font-size="10.2" fill="#1d4ed8" text-anchor="middle">2.33</text>
+              <rect x="174" y="173.2" width="30" height="84.8" rx="3" fill="#059669"/>
+              <text x="189" y="168" font-size="10.5" font-weight="800" fill="#047857" text-anchor="middle">1.62</text>
+              <rect x="209" y="202.7" width="30" height="55.3" rx="3" fill="#7c3aed"/>
+              <text x="224" y="198" font-size="10.2" fill="#5b21b6" text-anchor="middle">1.05</text>
+              <rect x="244" y="95.9"  width="30" height="162.1" rx="3" fill="#f59e0b"/>
+              <text x="259" y="90" font-size="10.2" fill="#b45309" text-anchor="middle">3.09</text>
+              <text x="189" y="278" font-size="12" font-weight="700" fill="#0f172a" text-anchor="middle">L0 kv_a_proj</text>
+              <text x="189" y="295" font-size="10.5" fill="#64748b" text-anchor="middle">(浅层极端异常值)</text>
+
+              <!-- Group 2: L0 q_a_proj (mcpu GEMM RelL2: 2.650, 2.132, 1.681, 0.877, 3.113) -->
+              <rect x="342" y="118.9" width="30" height="139.1" rx="3" fill="#64748b"/>
+              <text x="357" y="113" font-size="10.2" fill="#475569" text-anchor="middle">2.65</text>
+              <rect x="377" y="146.1" width="30" height="111.9" rx="3" fill="#3b82f6"/>
+              <text x="392" y="141" font-size="10.2" fill="#1d4ed8" text-anchor="middle">2.13</text>
+              <rect x="412" y="169.7" width="30" height="88.3" rx="3" fill="#059669"/>
+              <text x="427" y="164" font-size="10.5" font-weight="800" fill="#047857" text-anchor="middle">1.68</text>
+              <rect x="447" y="212.0" width="30" height="46.0" rx="3" fill="#7c3aed"/>
+              <text x="462" y="207" font-size="10.2" fill="#5b21b6" text-anchor="middle">0.88</text>
+              <rect x="482" y="94.6"  width="30" height="163.4" rx="3" fill="#f59e0b"/>
+              <text x="497" y="89" font-size="10.2" fill="#b45309" text-anchor="middle">3.11</text>
+              <text x="427" y="278" font-size="12" font-weight="700" fill="#0f172a" text-anchor="middle">L0 q_a_proj</text>
+              <text x="427" y="295" font-size="10.5" fill="#64748b" text-anchor="middle">(浅层高异常)</text>
+
+              <!-- Group 3: L0 o_proj (mcpu GEMM RelL2: 2.654, 1.422, 1.196, 0.838, 2.895) -->
+              <rect x="580" y="118.7" width="30" height="139.3" rx="3" fill="#64748b"/>
+              <text x="595" y="113" font-size="10.2" fill="#475569" text-anchor="middle">2.65</text>
+              <rect x="615" y="183.3" width="30" height="74.7" rx="3" fill="#3b82f6"/>
+              <text x="630" y="178" font-size="10.2" fill="#1d4ed8" text-anchor="middle">1.42</text>
+              <rect x="650" y="195.2" width="30" height="62.8" rx="3" fill="#059669"/>
+              <text x="665" y="190" font-size="10.5" font-weight="800" fill="#047857" text-anchor="middle">1.20</text>
+              <rect x="685" y="214.0" width="30" height="44.0" rx="3" fill="#7c3aed"/>
+              <text x="700" y="209" font-size="10.2" fill="#5b21b6" text-anchor="middle">0.84</text>
+              <rect x="720" y="106.0" width="30" height="152.0" rx="3" fill="#f59e0b"/>
+              <text x="735" y="101" font-size="10.2" fill="#b45309" text-anchor="middle">2.90</text>
+              <text x="665" y="278" font-size="12" font-weight="700" fill="#0f172a" text-anchor="middle">L0 o_proj</text>
+              <text x="665" y="295" font-size="10.5" fill="#64748b" text-anchor="middle">(Attention 输出投影)</text>
+
+              <!-- Group 4: L10 MoE Experts gate (mcpu GEMM RelL2: 2.652, 1.039, 0.925, 0.830, 2.792) -->
+              <rect x="810" y="48" width="222" height="258" rx="8" fill="#ecfdf5" opacity="0.45" stroke="#10b981" stroke-dasharray="3 2"/>
+              <rect x="826" y="118.8" width="30" height="139.2" rx="3" fill="#64748b"/>
+              <text x="841" y="113" font-size="10.2" fill="#475569" text-anchor="middle">2.65</text>
+              <rect x="861" y="203.5" width="30" height="54.5" rx="3" fill="#3b82f6"/>
+              <text x="876" y="198" font-size="10.2" fill="#1d4ed8" text-anchor="middle">1.04</text>
+              <rect x="896" y="209.4" width="30" height="48.6" rx="3" fill="#059669"/>
+              <text x="911" y="204" font-size="10.5" font-weight="800" fill="#047857" text-anchor="middle">0.93</text>
+              <rect x="931" y="214.4" width="30" height="43.6" rx="3" fill="#7c3aed"/>
+              <text x="946" y="209" font-size="10.2" fill="#5b21b6" text-anchor="middle">0.83</text>
+              <rect x="966" y="111.4" width="30" height="146.6" rx="3" fill="#f59e0b"/>
+              <text x="981" y="106" font-size="10.5" font-weight="700" fill="#b45309" text-anchor="middle">2.79</text>
+              <text x="921" y="278" font-size="12" font-weight="800" fill="#065f46" text-anchor="middle">L10 MoE Experts</text>
+              <text x="921" y="295" font-size="10.5" font-weight="700" fill="#047857" text-anchor="middle">(占全模型 97.8% 参数)</text>
+            </svg>
+          </div>
+          <div class="figure-caption">
+            数据来源：<code>docs/glm-int8-ue8m0-guide.md</code> 第 6.3 节实测<sup class="cite"><a href="#ref-17">[17]</a></sup>（对应权重 <code>RelRMSE</code> 与 <code>mcpu</code> GEMM <code>RelL2</code> 高度一致：MoE <code>exp0.gate/down</code> 在路径 ② 下为 <code>0.911% / 0.925%</code> 与 <code>0.905% / 0.919%</code>，在路径 ③ 下为 <code>2.789% / 2.792%</code> 与 <code>2.788% / 2.794%</code>，相对官方 FP8 <code>2.652%</code> 仅增 <code>+0.14%</code>）。
+          </div>
+        </div>
+
+        <h4>表 5.2-1：四类核心子图连续张量输出误差对比（以官方 BF16 子图输出为基准，统一指标 <code>RelL2</code>，越小越好）</h4>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>子图与评估层<br>(对照完整官方 BF16 子图输出)</th>
+                <th>路径 ①<br>官方 FP8 [128,128]</th>
+                <th>路径 ②-a<br>官方 BF16 → Int8 [32,32]</th>
+                <th>路径 ②-b（推荐）<br>官方 BF16 → Int8 [16,16]</th>
+                <th>路径 ③（过渡转码）<br>官方 FP8 → BF16 → Int8 [16,16]</th>
+                <th>[16,16] 关键部分替换消融与结论</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>MLA Attention 输出</strong><br><code>L00 / L06 / L38 / L74</code><br>(<code>seq_len = 512</code>)</td>
+                <td><code>1.62% / 3.47%</code><br><code>5.51% / 6.35%</code></td>
+                <td><code>1.04% / 1.87%</code><br><code>2.29% / 2.77%</code></td>
+                <td><strong><code>0.90% / 1.50%</code><br><code>2.06% / 2.47%</code></strong><br><span class="tag tag-green">较 FP8 降 2.3×–2.7×</span></td>
+                <td><code>1.83% / 3.77%</code><br><code>5.84% / 6.75%</code><br><span style="font-size:11.5px;color:#64748b;">(显式按 128 块解包)</span></td>
+                <td>敏感度：<code>kv_b ≈ o_proj &gt; kv_a &gt; q_b ≈ q_a</code>；彻底消除原 [128,128] 在 <code>kv_a(576)</code> / <code>kv_b(448)</code> 上的跨 Head 污染。</td>
+              </tr>
+              <tr>
+                <td><strong>DSA Indexer 打分矩阵</strong><br><code>L00 / L06 / L38 / L74</code><br>(<code>Score Logits [32,4096]</code>)</td>
+                <td><code>3.48% / 3.14%</code><br><code>4.22% / 6.21%</code></td>
+                <td><code>2.17% / 2.01%</code><br><code>2.13% / 3.22%</code></td>
+                <td><strong><code>1.64% / 1.53%</code><br><code>1.77% / 2.70%</code></strong></td>
+                <td><strong><code>3.51% / 3.18%</code><br><code>4.35% / 6.34%</code></strong><br><span style="font-size:11.5px;color:#047857;">(保留 <code>wk=FP8</code>)</span></td>
+                <td><code>wk=BF16, wq_b=I8[16]</code> 低至 <code>0.62%~1.31%</code>；若误将 <code>wk</code> 从 FP8 二次转码则恶化至 <code>3.78%~6.72%</code>。</td>
+              </tr>
+              <tr>
+                <td><strong>Dense MLP 输出</strong><br><code>L00</code> (<code>SwiGLU</code>)</td>
+                <td><code>3.22%</code></td>
+                <td><code>1.46%</code></td>
+                <td><strong><code>1.34%</code></strong><br><span class="tag tag-green">降 2.4×</span></td>
+                <td><code>3.47%</code></td>
+                <td><code>[16,16]</code> 较 <code>[32,32]</code> 再降 <code>0.12%</code>，精度大幅领先官方 FP8。</td>
+              </tr>
+              <tr>
+                <td><strong>MoE FFN (Shared+Routed)</strong><br><code>L06 / L38 / L74</code><br>(<code>SwiGLU</code> 组合输出)</td>
+                <td><code>4.03% / 4.51%</code><br><code>4.42%</code></td>
+                <td><code>1.68% / 1.71%</code><br><code>1.86%</code></td>
+                <td><strong><code>1.44% / 1.62%</code><br><code>1.63%</code></strong><br><span class="tag tag-green">降 2.7×–2.8×</span></td>
+                <td><code>4.25% / 4.76%</code><br><code>4.67%</code><br><span style="font-size:11.5px;color:#64748b;">(仅换 w13: 4.15%~4.65%)</span></td>
+                <td>仅换 Routed <code>w13</code>：<code>2.97%/3.13%/3.07%</code>；仅换 <code>w2</code>：<code>3.40%/3.88%/3.79%</code>——<strong>单换 <code>w13</code> 多降 0.43%–0.75%</strong>，确立为 P0。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h4>表 5.2-2：DSA Sparse Indexer 离散选词集合专项评估（<code>T_kv = 4096</code> 选 <code>Top-2048</code>，对照官方 BF16 选词集合）</h4>
+        <p style="font-size:13.5px; color:var(--text-secondary); margin-top:4px;">
+          为避免连续张量误差与离散选词指标混列，下表单独报告<strong>选词漏选率 <code>Miss@2048</code>（越小越好）</strong>与<strong>选词召回率 <code>Recall@2048 = 1 − Miss@2048</code>（越大越好）</strong><sup class="cite"><a href="#ref-17">[17]</a></sup>：
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Indexer 权重配置（以官方 BF16 选词集合为基准）</th>
+                <th><code>L00</code><br>Miss (Recall)</th>
+                <th><code>L06</code><br>Miss (Recall)</th>
+                <th><code>L38</code><br>Miss (Recall)</th>
+                <th><code>L74</code><br>Miss (Recall)</th>
+                <th>结论</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>路径 ①：官方 <code>FP8 [128,128]</code></strong>（现状基线）</td>
+                <td><code>1.45%</code> (98.55%)</td>
+                <td><code>1.21%</code> (98.79%)</td>
+                <td><code>1.67%</code> (98.33%)</td>
+                <td><code>2.14%</code> (97.86%)</td>
+                <td>深层 L74 约漏选 44 / 2048 个候选词</td>
+              </tr>
+              <tr>
+                <td><strong>路径 ②-a：官方 BF16 → <code>Int8 [32,32] MSE</code></strong></td>
+                <td><code>0.83%</code> (99.17%)</td>
+                <td><code>0.79%</code> (99.21%)</td>
+                <td><code>0.83%</code> (99.17%)</td>
+                <td><code>1.12%</code> (98.88%)</td>
+                <td>漏选率较官方 FP8 接近减半</td>
+              </tr>
+              <tr class="highlight-emerald">
+                <td><strong>路径 ②-b：官方 BF16 → <code>Int8 [16,16] MSE</code></strong></td>
+                <td><strong><code>0.66%</code> (99.34%)</strong></td>
+                <td><strong><code>0.60%</code> (99.40%)</strong></td>
+                <td><strong><code>0.72%</code> (99.28%)</strong></td>
+                <td><strong><code>0.95%</code> (99.05%)</strong></td>
+                <td><strong>全深度漏选率均压入 &lt;1.0%（Recall &gt;99%）</strong></td>
+              </tr>
+              <tr>
+                <td>路径 ② 增强：<code>wk=BF16</code> + <code>wq_b=Int8 [16,16]</code></td>
+                <td><code>0.28%</code> (99.72%)</td>
+                <td><code>0.27%</code> (99.73%)</td>
+                <td><code>0.45%</code> (99.55%)</td>
+                <td><code>0.54%</code> (99.46%)</td>
+                <td><code>wk</code> 全网仅 17 MB，保留 BF16 召回逼近 100%</td>
+              </tr>
+              <tr class="highlight-row">
+                <td><strong>路径 ③（过渡生产）：<code>wk=FP8(保留)</code> + <code>wq_b=FP8→BF16→I8[16]</code></strong></td>
+                <td><strong><code>1.47%</code> (98.53%)</strong></td>
+                <td><strong><code>1.23%</code> (98.77%)</strong></td>
+                <td><strong><code>1.70%</code> (98.30%)</strong></td>
+                <td><strong><code>2.23%</code> (97.77%)</strong></td>
+                <td><strong>与官方 FP8 基本持平（偏差 ≤0.09%）</strong></td>
+              </tr>
+              <tr>
+                <td>反例：<code>wk, wq_b</code> 均从官方 FP8 二次转码</td>
+                <td><code>1.55%</code> (98.45%)</td>
+                <td><code>1.32%</code> (98.68%)</td>
+                <td><code>1.79%</code> (98.21%)</td>
+                <td><code>2.33%</code> (97.67%)</td>
+                <td>MQA 共享 <code>wk</code> 禁止从 FP8 二次量化</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout rose">
+          <div class="callout-title">工程实测避坑提示（路径 ③ 官方 FP8 反量化非整除块陷阱 + 全深度数值安全）</div>
+          <ul>
+            <li><strong>非整除矩阵反量化陷阱（已捕获并修复）：</strong>GLM-5.2/5.3 的 <code>kv_a_proj_with_mqa.weight</code> 形状为 <code>[576, 6144]</code>，在官方 FP8 <code>[128,128]</code> 下其 Scale 形状为 <code>[5, 48]</code>（<code>ceil(576/128)=5</code>）。若误用 <code>ceil(576/5)=116</code> 反推块高，会导致每块错位 12 行并使权重误差暴涨至 <strong>94.5%</strong>、MLA 子图误差恶化至 <strong>31%–91%</strong><sup class="cite"><a href="#ref-17">[17]</a></sup>！转换时必须显式按 <code>weight_block_size = [128, 128]</code> 展开（<code>convert_glm_int8_ue8m0.py</code> 已引入显式 <code>src_block_size</code> 与 2 次幂块宽推断保护）。</li>
+            <li><strong>全深度 UE8M0 安全边界与双路径等价性：</strong>扫描本地 13 层 156 个矩阵，全部 <code>UE8M0</code> 指数均严格落在 <strong><code>[108, 122]</code></strong>（距 SIMD 无分支安全边界 <code>[1, 246]</code> 余量超 100 档）；全部 65,536 种 <code>(int8, ue8m0)</code> 组合与 FP32+RNE 黄金参考 <strong>100% 逐比特一致</strong>；预折入 BF16 指数沿全 K 连续累加与逐块缩放对拍 <code>RelL2 ≤ 0.0037%</code><sup class="cite"><a href="#ref-17">[17]</a></sup>。</li>
+          </ul>
+        </div>
+
+        <h3 id="sec-prop-mem">5.3 单卡权重显存增量估算（GLM-5.2 / GLM-5.3，<code>DP16 × TP4 × EP64</code>）</h3>
+        <p>
+          切换量化格式后，由于 <code>FP8</code> 与 <code>Int8</code> 权重本体均为 <strong>1 Byte/参数</strong>，<strong>显存体积变化 100% 来自 Scale 张量差值</strong>。原版 <code>FP8 [128,128]</code> 每 16,384 个元素存 1 个 4 字节 FP32 Scale（<code>1 B / 4,096</code> 元素）；改用 1 字节 <code>UE8M0</code> 本身带来 4× 压缩，因此 <code>[32,32]</code>、<code>[16,16]</code>、<code>MXINT8 [1,32]</code> 的 Scale 字节数分别为原版的 4×、16×、128×<sup class="cite"><a href="#ref-17">[17]</a></sup>。
+        </p>
+        <p>
+          以下按实际规划部署拓扑 <strong><code>DP16 × TP4 × EP64</code>（共 64 Ranks）</strong>，基于 GLM-5.2 / GLM-5.3 <strong>78 层主干权重</strong>的矩阵维度（参考 <code>docs/glm-int8-ue8m0-guide.md</code> 第 6.5 节模块拆分口径<sup class="cite"><a href="#ref-17">[17]</a></sup>：SP-MoE 共享专家全卡复制、<code>kv_b_proj</code> 与 <code>indexer.wk</code> 加载期展开为 BF16），估算<strong>单张卡（单 Rank）</strong>的常驻权重显存及 Scale 净增量：
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>单卡模块组成（78 主干层，<code>DP16 × TP4 × EP64</code>）</th>
+                <th>并行切分方式</th>
+                <th class="num">单卡权重本体</th>
+                <th class="num">FP8 [128,128]<br>FP32 Scale</th>
+                <th class="num">Int8 [32,32]<br>UE8M0 Scale</th>
+                <th class="num"><strong>Int8 [16,16]</strong><br>UE8M0 Scale</th>
+                <th class="num">MXINT8 [1,32]<br>UE8M0 Scale</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Routed MoE</strong> (<code>w13</code> + <code>w2</code>)</td>
+                <td>EP64 切分（每卡 4 专家 × 75 层）</td>
+                <td class="num">11.325 GB</td>
+                <td class="num">2.76 MB</td>
+                <td class="num">11.06 MB</td>
+                <td class="num"><strong>44.24 MB</strong></td>
+                <td class="num">353.89 MB</td>
+              </tr>
+              <tr>
+                <td><strong>Shared Experts</strong> (<code>w13</code> + <code>w2</code>)</td>
+                <td>SP-MoE 全卡复制（75 层）</td>
+                <td class="num">2.831 GB</td>
+                <td class="num">0.69 MB</td>
+                <td class="num">2.76 MB</td>
+                <td class="num"><strong>11.06 MB</strong></td>
+                <td class="num">88.47 MB</td>
+              </tr>
+              <tr>
+                <td><strong>MLA Attention</strong> (<code>qkva</code>/<code>q_b</code>/<code>o_proj</code>)</td>
+                <td><code>qkva</code> 复制；<code>q_b</code>/<code>o_proj</code> TP4（78 层）</td>
+                <td class="num">3.875 GB</td>
+                <td class="num">0.95 MB</td>
+                <td class="num">3.78 MB</td>
+                <td class="num"><strong>15.14 MB</strong></td>
+                <td class="num">121.09 MB</td>
+              </tr>
+              <tr>
+                <td><strong>DSA Indexer <code>wq_b</code> + Dense MLP</strong></td>
+                <td><code>wq_b</code> 复制（21 层）；Dense TP4（3 层）</td>
+                <td class="num">0.346 GB</td>
+                <td class="num">0.08 MB</td>
+                <td class="num">0.34 MB</td>
+                <td class="num"><strong>1.35 MB</strong></td>
+                <td class="num">10.81 MB</td>
+              </tr>
+              <tr>
+                <td><strong>固定未量化 BF16 / FP32</strong></td>
+                <td><code>embed</code>/<code>lm_head</code>/<code>kv_b</code> TP4；Norm/Gate/<code>wk</code> 复制</td>
+                <td class="num">1.815 GB</td>
+                <td class="num">0</td>
+                <td class="num">0</td>
+                <td class="num"><strong>0</strong></td>
+                <td class="num">0</td>
+              </tr>
+              <tr class="highlight-emerald">
+                <td><strong>单卡合计（1 Rank 理论估算）</strong></td>
+                <td><strong>总权重含 Scale / 相对 FP8 净增</strong></td>
+                <td class="num"><strong>20.192 GB</strong><br><span style="font-size:11px;color:#475569;">(18.80 GiB)</span></td>
+                <td class="num"><strong>20.196 GB</strong><br><span style="font-size:11px;color:#475569;">基线 +0 MB</span></td>
+                <td class="num"><strong>20.210 GB</strong><br><span style="font-size:11px;color:#1d4ed8;">+13.5 MB (+0.07%)</span></td>
+                <td class="num"><strong>20.263 GB</strong><br><span style="font-size:11px;color:#047857;"><strong>+67.3 MB (+0.33%)</strong></span></td>
+                <td class="num"><strong>20.766 GB</strong><br><span style="font-size:11px;color:#5b21b6;">+569.8 MB (+2.82%)</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- SVG 7: Single-Card Memory Overhead Comparison under DP16 x TP4 x EP64 -->
+        <div class="figure">
+          <div class="figure-header">
+            <div class="figure-title">图 7：GLM-5.2 / GLM-5.3 单卡 Scale 显存理论净增量对比（DP16 × TP4 × EP64，基线 20.20 GB）</div>
+            <div class="figure-sub">单卡（1 Rank）统计口径，凸显 [16, 16] 在精度收益与显存开销间的最佳平衡</div>
+          </div>
+          <div class="svg-box">
+            <svg viewBox="0 0 1080 198" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif">
+              <text x="216" y="42" font-size="12.2" font-weight="700" fill="#334155" text-anchor="end">官方 FP8 [128,128] FP32</text>
+              <rect x="230" y="28" width="5" height="20" rx="2" fill="#64748b"/>
+              <text x="246" y="42" font-size="12" fill="#475569">基线 +0 MB（单卡总 Scale 4.49 MB，78 主干层单卡总权重 ~20.20 GB）</text>
+
+              <text x="216" y="83" font-size="12.2" font-weight="700" fill="#1d4ed8" text-anchor="end">Int8 + UE8M0 [32, 32]</text>
+              <rect x="230" y="69" width="12" height="20" rx="4" fill="#3b82f6"/>
+              <text x="254" y="83" font-size="12" font-weight="700" fill="#1d4ed8">+13.5 MB（+0.067%，单卡总 Scale 17.95 MB）</text>
+
+              <text x="216" y="124" font-size="12.2" font-weight="800" fill="#065f46" text-anchor="end">Int8 + UE8M0 [16, 16] ★</text>
+              <rect x="230" y="109" width="57" height="22" rx="4" fill="#059669"/>
+              <text x="299" y="124" font-size="12.2" font-weight="800" fill="#047857">+67.3 MB（+0.333% · 仅增约 64 MiB，拿走浅层 55%~60% 误差降幅，推荐！）</text>
+
+              <text x="216" y="165" font-size="12.2" font-weight="700" fill="#5b21b6" text-anchor="end">MXINT8 [1, 32] (1D)</text>
+              <rect x="230" y="151" width="480" height="20" rx="4" fill="#7c3aed"/>
+              <text x="722" y="165" font-size="12" font-weight="700" fill="#5b21b6">+569.8 MB（+2.821%，约 [16,16] 的 8.5×）</text>
+            </svg>
+          </div>
+          <div class="figure-caption">
+            <strong>口径说明与工程结论：</strong>上述数字按十进制 <code>1 GB = 10<sup>9</sup> B</code>（括号为二进制 <code>GiB</code>）基于 GLM-5.2/5.3 78 主干层理论矩阵尺寸估算，未计入 MTP 层、运行时激活缓冲、KV Cache 及各后端私有 Prepack 对齐 Padding，<strong>最终单卡显存占用以实际部署实测为准</strong>。即便考虑上述因素，<code>[16, 16]</code> 相比 <code>MXINT8 [1, 32]</code> 节省 <strong>8.5 倍</strong> Scale 显存，且完整保留二维块特性（转置不变性 + 16 行行间 Scale 复用），几乎不挤压 KV Cache 空间。
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 6: Roadmap -->
+      <section id="sec-roadmap">
+        <h2><span class="sec-num">6</span> 分阶段推进路线、跨团队协作诉求与风险对策</h2>
+
+        <!-- SVG 8: Phased Roadmap (1080px wide, clean tspan formatting) -->
+        <div class="figure">
+          <div class="figure-header">
+            <div class="figure-title">图 8：Int8 + UE8M0 离线量化三阶段工程推进路线图</div>
+            <div class="figure-sub">聚焦 65.2% 最大权重热点切入，控变量验证，平滑推进至端到端基准跑分验收</div>
+          </div>
+          <div class="svg-box">
+            <svg viewBox="0 0 1080 218" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif">
+              <!-- Phase 1: x=14, w=328 -->
+              <rect x="14" y="16" width="328" height="186" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+              <rect x="14" y="16" width="328" height="36" rx="10" fill="#1d4ed8"/>
+              <text x="178" y="39" font-size="13.5" font-weight="800" fill="#fff" text-anchor="middle">Phase 1 · P0 热点突破 (moe_w13)</text>
+              <text x="30" y="75" font-size="11.8" font-weight="700" fill="#1e3a8a">• 目标算子：MoeGroupedGemmWithIndex</text>
+              <text x="30" y="96" font-size="11.5" fill="#334155">• 覆盖 GLM-5.3 <tspan font-weight="700" fill="#0f172a">65.18%</tspan> 参数（489.6 GB）</text>
+              <text x="30" y="116" font-size="11.5" fill="#334155">• 转换脚本 <tspan font-family="monospace" font-weight="700" fill="#1d4ed8">--scope moe_w13</tspan> 控变量验证</text>
+              <text x="30" y="136" font-size="11.5" fill="#334155">• 落地全 Shuffle + sra + cvt + fmul 内核</text>
+              <text x="30" y="162" font-size="11.5" font-weight="700" fill="#047857">✓ 里程碑：单算子逐比特一致 + 端到端</text>
+              <text x="30" y="180" font-size="11.5" font-weight="700" fill="#047857">  w13 耗时大幅下降，验证真实加速收益</text>
+
+              <polygon points="352,102 370,109 352,116" fill="#2563eb"/>
+
+              <!-- Phase 2: x=376, w=328 -->
+              <rect x="376" y="16" width="328" height="186" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="2"/>
+              <rect x="376" y="16" width="328" height="36" rx="10" fill="#047857"/>
+              <text x="540" y="39" font-size="13.5" font-weight="800" fill="#fff" text-anchor="middle">Phase 2 · 全量矩阵打通 (scope all)</text>
+              <text x="392" y="75" font-size="11.8" font-weight="700" fill="#065f46">• 补齐算子：MoeGroupedGemm (w2)</text>
+              <text x="392" y="95" font-size="11.8" font-weight="700" fill="#065f46">  + Int8Linear + int8_block_dequant</text>
+              <text x="392" y="116" font-size="11.5" fill="#334155">• 覆盖余下 34.8% 参数（保留 17MB wk）</text>
+              <text x="392" y="136" font-size="11.5" fill="#334155">• 叠加 Int8 KV Cache (<tspan font-family="monospace" font-weight="700" fill="#047857">int8_ds_mla</tspan>)</text>
+              <text x="392" y="162" font-size="11.5" font-weight="700" fill="#047857">✓ 里程碑：DP16/TP4/EP64 Compile 模式</text>
+              <text x="392" y="180" font-size="11.5" font-weight="700" fill="#047857">  全链路跑通，吞吐 / TTFT / TPOT 达标</text>
+
+              <polygon points="714,102 732,109 714,116" fill="#059669"/>
+
+              <!-- Phase 3: x=738, w=328 -->
+              <rect x="738" y="16" width="328" height="186" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+              <rect x="738" y="16" width="328" height="36" rx="10" fill="#6d28d9"/>
+              <text x="902" y="39" font-size="13.5" font-weight="800" fill="#fff" text-anchor="middle">Phase 3 · 跑分闭环与 V4.1 推广</text>
+              <text x="754" y="75" font-size="11.8" font-weight="700" fill="#4c1d95">• 端到端精度验收与 BF16 源升级</text>
+              <text x="754" y="96" font-size="11.5" fill="#334155">• 补齐 MMLU / GSM8K / Code / Agent 跑分</text>
+              <text x="754" y="116" font-size="11.5" fill="#334155">• GLM-5.3-BF16 导入后直转消除二次噪声</text>
+              <text x="754" y="136" font-size="11.5" fill="#334155">• 独立评估并推广至 V4.1-Flash FP8 层</text>
+              <text x="754" y="162" font-size="11.5" font-weight="700" fill="#5b21b6">✓ 里程碑：端到端无损验收上线，预留</text>
+              <text x="754" y="180" font-size="11.5" font-weight="700" fill="#5b21b6">  未来硬件原生 W8A8/MXINT8 演进路径</text>
+            </svg>
+          </div>
+        </div>
+
+        <div class="card-grid-2">
+          <div class="info-card">
+            <h4>给矩阵乘算子团队的配合诉求</h4>
+            <ul>
+              <li><strong>交付优先级：</strong>按参数占比与耗时收益依次交付 <code>MoeGroupedGemmWithIndex (w13)</code> → <code>MoeGroupedGemm (w2)</code> → <code>Int8Linear</code> → <code>int8_block_dequant</code>。</li>
+              <li><strong>统一算子契约：</strong>消费标准补码 <code>int8</code> + <code>uint8 UE8M0</code>，参数化支持 <code>[16,16]</code> 与 <code>[32,32]</code>；采用“反量化预折入 BF16 指数 + 全 K 维连续累加”，结合各后端私有 Prepack 优化片上 DMA 搬运。</li>
+              <li><strong>自动化验收单测：</strong>复用仓库 <code>torch_xcpu/test/ops/test_int8_ue8m0_16x16.py</code> 完成全量 65,536 组合逐比特对拍及融合 <code>SiluAndMul</code> 单测<sup class="cite"><a href="#ref-17">[17]</a></sup>。</li>
+            </ul>
+          </div>
+          <div class="info-card">
+            <h4>给管理层的决策要点与风险控制</h4>
+            <ul>
+              <li><strong>立项投入产出比：</strong>仅需一套统一 <code>Int8 + UE8M0</code> 算子栈，换取实测 <strong>3.5×~4.7× 反量化加速</strong>、极低单卡显存增量（<code>DP16×TP4×EP64</code> 理论估算仅 <code>+67.3 MB / +0.333%</code>，以实际部署为准）、跨模型算子复用以及向未来硬件原生 W8A8 的平滑演进能力。</li>
+              <li><strong>风险 1（端到端跑分尚未闭环）：</strong>Phase 1 控变量验证后，Phase 2 立即执行全量 Benchmark 跑分把关；待 <code>GLM-5.3-BF16</code> 源权重导入后切换为 BF16 直转（算子精度全面反超官方 FP8）。</li>
+              <li><strong>风险 2（FP8 二次转码敏感层）：</strong>转换工具已固化保留 <code>indexer.wk</code>（17 MB），避免稀疏注意力召回退化。</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 7: Verifiable References -->
+      <section id="sec-refs">
+        <h2><span class="sec-num">7</span> 参考文献与权威技术来源（References）</h2>
+        <p style="font-size: 13.5px; color: var(--text-secondary);">
+          本报告所有核心格式规范、硬件指令特性、算法出处、模型参数及实验数据均严格锚定以下公开论文、官方文档、开源仓库或内部实测基线：
+        </p>
+
+        <div class="ref-group-title">A. 数值格式标准与芯片硬件 ISA 官方文档</div>
+        <ul class="ref-list">
+          <li id="ref-1"><span class="ref-id">[1]</span><div><strong>OCP Microscaling Formats (MX) Specification v1.0 / v1.1</strong> &amp; Rouhani et al., <em>"Microscaling Data Formats for Deep Learning"</em> (2023). <a href="https://arxiv.org/abs/2310.10537" target="_blank">https://arxiv.org/abs/2310.10537</a> · <a href="https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf" target="_blank">opencompute.org OCP MX Spec</a></div></li>
+          <li id="ref-2"><span class="ref-id">[2]</span><div><strong>NVIDIA PTX ISA Documentation</strong> — Warp-Group MMA (<code>wgmma.mma_async</code>, SM90 Hopper) &amp; 5th-Gen Tensor Core Block-Scaled MMA (<code>tcgen05.mma.cta_group.kind::mxf8f6f4.block_scale</code> / <code>kind::mxf4nvf4.block_scale</code>, SM100 Blackwell). <a href="https://docs.nvidia.com/cuda/parallel-thread-execution/" target="_blank">https://docs.nvidia.com/cuda/parallel-thread-execution/</a></div></li>
+          <li id="ref-3"><span class="ref-id">[3]</span><div><strong>NVIDIA Developer Technical Blog</strong> — <em>"Introducing NVFP4 for Efficient and Accurate Low-Precision Inference"</em> (对比 NVFP4 16 元素 FP8 E4M3 双级缩放与 OCP MXFP4 32 元素 UE8M0 缩放). <a href="https://developer.nvidia.com/blog/introducing-nvfp4-for-efficient-and-accurate-low-precision-inference/" target="_blank">developer.nvidia.com/blog/introducing-nvfp4-...</a></div></li>
+          <li id="ref-4"><span class="ref-id">[4]</span><div><strong>AMD Instinct MI350 Series / CDNA 4 Architecture</strong> &amp; AMD Quark — 原生 OCP MXFP8 / MXFP6 / MXFP4 硬件缩放指令（<code>v_mfma_scale_*</code>）与部署文档. <a href="https://www.amd.com/en/products/accelerators/instinct/mi350.html" target="_blank">amd.com/instinct/mi350</a> · <a href="https://github.com/amd/Quark" target="_blank">github.com/amd/Quark</a></div></li>
+          <li id="ref-5a"><span class="ref-id">[5a]</span><div><strong>Huawei HiSilicon — HiFloat8</strong>：Luo et al., <em>"Ascend HiFloat8 Format for Deep Learning"</em> (2024). <a href="https://arxiv.org/abs/2409.16626" target="_blank">https://arxiv.org/abs/2409.16626</a></div></li>
+          <li id="ref-5b"><span class="ref-id">[5b]</span><div><strong>Huawei Ascend — HiFloat4 &amp; FP4 Pretraining</strong>：<em>HiFloat4 (HiF4) vs MXFP4 / NVFP4</em> 技术评估论文 (2026). <a href="https://arxiv.org/abs/2602.12635" target="_blank">https://arxiv.org/abs/2602.12635</a></div></li>
+          <li id="ref-5c"><span class="ref-id">[5c]</span><div><strong>Google Cloud Blog — TPU v7 Ironwood</strong>：<em>"Ironwood: The first Google TPU for the age of inference"</em> (首个硬件原生 FP8 MXU 的 TPU 世代). <a href="https://blog.google/products/google-cloud/ironwood-tpu-age-of-inference/" target="_blank">blog.google/.../ironwood-tpu-age-of-inference/</a></div></li>
+        </ul>
+
+        <div class="ref-group-title">B. 大模型训练后量化（PTQ）经典算法论文</div>
+        <ul class="ref-list">
+          <li id="ref-6"><span class="ref-id">[6]</span><div><strong>GPTQ</strong>：Frantar et al., <em>"GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers"</em> (ICLR 2023). <a href="https://arxiv.org/abs/2210.17323" target="_blank">https://arxiv.org/abs/2210.17323</a></div></li>
+          <li id="ref-7"><span class="ref-id">[7]</span><div><strong>SmoothQuant</strong>：Xiao et al., <em>"SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models"</em> (ICML 2023). <a href="https://arxiv.org/abs/2211.10438" target="_blank">https://arxiv.org/abs/2211.10438</a></div></li>
+          <li id="ref-8"><span class="ref-id">[8]</span><div><strong>AWQ</strong>：Lin et al., <em>"AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration"</em> (MLSys 2024). <a href="https://arxiv.org/abs/2306.00978" target="_blank">https://arxiv.org/abs/2306.00978</a></div></li>
+          <li id="ref-9"><span class="ref-id">[9]</span><div><strong>QuaRot</strong>：Ashkboos et al., <em>"QuaRot: Outlier-Free 4-Bit Inference in Rotated LLMs"</em> (NeurIPS 2024). <a href="https://arxiv.org/abs/2404.00456" target="_blank">https://arxiv.org/abs/2404.00456</a></div></li>
+          <li id="ref-10"><span class="ref-id">[10]</span><div><strong>SpinQuant</strong>：Liu et al., <em>"SpinQuant: LLM Quantization with Learned Rotations"</em> (2024). <a href="https://arxiv.org/abs/2405.16406" target="_blank">https://arxiv.org/abs/2405.16406</a></div></li>
+        </ul>
+
+        <div class="ref-group-title">C. 前沿模型技术报告与开源权重/算子仓库</div>
+        <ul class="ref-list">
+          <li id="ref-11"><span class="ref-id">[11]</span><div><strong>DeepSeek-V3 Technical Report</strong> (671B 总参 / 37B 激活，确立细粒度 <code>[128,128]</code> FP8 训练与 Hopper 累加精度提升策略). <a href="https://arxiv.org/abs/2412.19437" target="_blank">https://arxiv.org/abs/2412.19437</a></div></li>
+          <li id="ref-12"><span class="ref-id">[12]</span><div><strong>DeepSeek DeepGEMM</strong> (GitHub 开源库 — Hopper FP8 WGMMA 软件块缩放与 ~14-bit 累加行为分析，及 Blackwell <code>tcgen05</code> 适配). <a href="https://github.com/deepseek-ai/DeepGEMM" target="_blank">https://github.com/deepseek-ai/DeepGEMM</a></div></li>
+          <li id="ref-13"><span class="ref-id">[13]</span><div><strong>DeepSeek-V3.1 Model Card</strong> (HuggingFace — 首次引入并说明 <code>UE8M0 FP8 scale</code> 面向下一代国产芯片设计). <a href="https://huggingface.co/deepseek-ai/DeepSeek-V3.1" target="_blank">https://huggingface.co/deepseek-ai/DeepSeek-V3.1</a></div></li>
+          <li id="ref-14"><span class="ref-id">[14]</span><div><strong>DeepSeek-V4.1-Flash Model Card</strong> (HuggingFace — ~552B 骨干 + 196B Engram 记忆，Dense FP8 <code>[32,32]</code> UE8M0 + MoE MXFP4). <a href="https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash" target="_blank">https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash</a></div></li>
+          <li id="ref-15"><span class="ref-id">[15]</span><div><strong>GLM-5 Technical Report</strong>：<em>"GLM-5: from Vibe Coding to Agentic Engineering"</em> (~744B 总参 / 40B 激活，DSA 稀疏注意力与 FP8 <code>[128,128]</code> 架构基线). <a href="https://arxiv.org/abs/2602.15763" target="_blank">https://arxiv.org/abs/2602.15763</a></div></li>
+          <li id="ref-16"><span class="ref-id">[16]</span><div><strong>Zhipu AI GLM-5.2 / GLM-5.3 Releases</strong> (HuggingFace — 与 GLM-5 同 744B / 78 层 / 256 专家架构，IndexShare 1M 上下文与 FP8 <code>[128,128]</code> 权重). <a href="https://huggingface.co/zai-org/GLM-5.2" target="_blank">https://huggingface.co/zai-org/GLM-5.2</a></div></li>
+        </ul>
+
+        <div class="ref-group-title">D. 本仓库内部定量实验与算子设计文档</div>
+        <ul class="ref-list">
+          <li id="ref-17"><span class="ref-id">[17]</span><div><code>docs/glm-int8-ue8m0-guide.md</code> — GLM-5.2 / GLM-5.3 Int8 + UE8M0 (<code>[16,16]</code>) 权重转换、分阶段部署与第 6 节定量误差/子图消融/显存增量实测。</div></li>
+          <li id="ref-18"><span class="ref-id">[18]</span><div><code>torch_xcpu/docs/ops/int8_ue8m0_dequant_simd_design.md</code> — INT8 + UE8M0 反量化数学零舍入证明、五级 SIMD 指令选型指南与 Xeon 8592+ 实测验证。</div></li>
+          <li id="ref-19"><span class="ref-id">[19]</span><div><code>torch_xcpu/docs/ops/fp8_linear.md</code> — FP8 Linear 算子契约与 DeepSeek-V4.1-Flash <code>[32,32]</code> UE8M0 块缩放支持说明。</div></li>
+          <li id="ref-20"><span class="ref-id">[20]</span><div><code>torch_xcpu/torch_xcpu/model_configs.py</code> — GLM-5.2/5.3 与 DeepSeek-V4.1-Flash 模型维度与 Engram 参数配置真源。</div></li>
+        </ul>
+      </section>
+
+      <footer class="report-footer">
+        <div>大模型量化技术体系调研与 Int8 + UE8M0 离线量化推进报告（离线独立 HTML 版，支持侧栏收起与打印导出 PDF）</div>
+        <div>更新日期：2026-11-25</div>
+      </footer>
+    </div>
+  </main>
+</div>
+
+<script>
+  function toggleSidebar() {
+    document.body.classList.toggle('sidebar-collapsed');
+  }
+
+  // Highlight active section in sticky sidebar TOC
+  (function () {
+    const links = Array.from(document.querySelectorAll('#toc a'));
+    const targets = links
+      .map((a) => ({ link: a, el: document.querySelector(a.getAttribute('href')) }))
+      .filter((item) => item.el);
+
+    if (!('IntersectionObserver' in window) || targets.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            links.forEach((l) => l.classList.remove('active'));
+            const match = targets.find((t) => t.el === entry.target);
+            if (match) match.link.classList.add('active');
+          }
+        });
+      },
+      { rootMargin: '-15% 0px -70% 0px', threshold: 0 }
+    );
+
+    targets.forEach((t) => observer.observe(t.el));
+  })();
+</script>
+</body>
+</html>
