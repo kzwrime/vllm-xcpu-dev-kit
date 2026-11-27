@@ -36,7 +36,7 @@ git clone -b dev/0.31 https://github.com/kzwrime/torch_mcpu.git
 pip install -r vllm/requirements/build/cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu
 pip install -r vllm/requirements/cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu
 pip install setuptools_scm
-pip install modelscope ruff mypy expecttest setuptools_rust
+pip install modelscope ruff mypy expecttest setuptools_rust soundfile
 pip install clangd==18.1.8.1 clang-format==18.1.3
 pip install -U "lm_eval[api]"
 pip install mooncake-transfer-engine-non-cuda

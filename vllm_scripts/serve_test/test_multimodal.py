@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
-"""Run deterministic OpenAI-compatible image checks against a vLLM service."""
+"""Run deterministic OpenAI-compatible image and audio checks against a vLLM service."""
 
 import argparse
 import base64
@@ -31,6 +31,13 @@ class ImageCase:
     keywords: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class AudioCase:
+    path: Path
+    format: str
+    keywords: tuple[str, ...]
+
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 IMAGE_CASES = (
     ImageCase(
@@ -40,6 +47,14 @@ IMAGE_CASES = (
     ImageCase(
         path=REPO_ROOT / "vllm/tests/multimodal/assets/image2.png",
         keywords=("safe", "important"),
+    ),
+)
+# Public-domain LibriVox English narration excerpt (12.0s 16 kHz mono PCM_16 WAV).
+AUDIO_CASES = (
+    AudioCase(
+        path=REPO_ROOT / "vllm_scripts/serve_test/assets/sample_speech.wav",
+        format="wav",
+        keywords=("timothy", "spoiled cat", "hearth"),
     ),
 )
 
@@ -354,9 +369,110 @@ def run_multimodal_test(
     return 1 if failed else 0
 
 
+def build_audio_payload(
+    model: str, audio_path: Path, fmt: str, *, mode: str = "audio_url"
+) -> dict[str, Any]:
+    audio_b64 = base64.b64encode(audio_path.read_bytes()).decode("ascii")
+    if mode == "audio_url":
+        audio_part: dict[str, Any] = {
+            "type": "audio_url",
+            "audio_url": {"url": f"data:audio/{fmt};base64,{audio_b64}"},
+        }
+    elif mode == "input_audio":
+        audio_part = {
+            "type": "input_audio",
+            "input_audio": {"data": audio_b64, "format": fmt},
+        }
+    else:
+        raise ValueError(f"unsupported audio mode: {mode!r}")
+    return {
+        "model": model,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    audio_part,
+                ],
+            }
+        ],
+        "max_tokens": 256,
+        "temperature": 0,
+    }
+
+
+def run_audio_multimodal_test(
+    api_url: str,
+    model: str,
+    *,
+    timeout: float = REQUEST_TIMEOUT_SECONDS,
+    audio_cases: tuple[AudioCase, ...] = AUDIO_CASES,
+) -> int:
+    api_url = normalize_api_url(api_url)
+    print(f"API_BASE={api_url}")
+    print(f"MODEL={model}")
+    print(f"REQUEST_TIMEOUT_SECONDS={timeout}")
+
+    try:
+        check_server_ready(api_url, model, timeout)
+    except (OSError, TypeError, urllib.error.URLError, RuntimeError) as exc:
+        print(f"[STARTUP_ERROR] {exc}")
+        return 1
+    print("[STARTUP] /v1/models check passed")
+
+    failed = 0
+    for audio_case in audio_cases:
+        for mode in ("audio_url", "input_audio"):
+            print(f"\n===== {audio_case.path.name} ({mode}) =====")
+            payload = build_audio_payload(
+                model, audio_case.path, audio_case.format, mode=mode
+            )
+            try:
+                status, raw_body = send_json_request(
+                    "POST", f"{api_url}/chat/completions", timeout, payload
+                )
+            except (OSError, urllib.error.URLError, TimeoutError) as exc:
+                failed += 1
+                print(f"[COMMUNICATION_ERROR] {exc}")
+                continue
+
+            print(f"HTTP_STATUS={status}")
+            print(f"RESPONSE_BODY={format_body(raw_body)}")
+            if status < 200 or status >= 300:
+                failed += 1
+                category = (
+                    "REQUEST_FORMAT_ERROR"
+                    if 400 <= status < 500
+                    else classify_backend_error(raw_body)
+                )
+                print(f"[{category}] audio request failed with HTTP {status}")
+                continue
+
+            try:
+                response = json.loads(raw_body)
+                content = extract_assistant_content(response)
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                failed += 1
+                print(f"[OUTPUT_MISMATCH] {exc}")
+                continue
+
+            content_lower = content.lower()
+            missing = [
+                kw for kw in audio_case.keywords if kw not in content_lower
+            ]
+            print(f"ASSISTANT_CONTENT={content}")
+            if missing:
+                failed += 1
+                print(f"[OUTPUT_MISMATCH] missing keywords: {missing}")
+            else:
+                print("[PASS] HTTP status and audio transcription content passed")
+
+    print(f"\nMULTIMODAL_TEST_RESULT={'FAIL' if failed else 'PASS'}")
+    return 1 if failed else 0
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Validate two fixed PNG inputs through an OpenAI-compatible vLLM API"
+        description="Validate fixed image or audio inputs through an OpenAI-compatible vLLM API"
     )
     parser.add_argument(
         "-e",
@@ -373,7 +489,20 @@ def parse_args() -> argparse.Namespace:
         default=REQUEST_TIMEOUT_SECONDS,
         help=f"per-request timeout in seconds (default: {REQUEST_TIMEOUT_SECONDS:g})",
     )
+    parser.add_argument(
+        "--modality",
+        choices=("auto", "image", "audio"),
+        default="auto",
+        help="multimodal modality to test (default: auto)",
+    )
     return parser.parse_args()
+
+
+def _detect_modality(model: str, preset_file: str | None) -> str:
+    hint = f"{model} {preset_file or ''}".lower()
+    if any(token in hint for token in ("asr", "audio", "ultravox", "voxtral")):
+        return "audio"
+    return "image"
 
 
 def main() -> int:
@@ -402,6 +531,13 @@ def main() -> int:
     else:
         print("[STARTUP_ERROR] USER_VLLM_PORT or --api-url is required")
         return 1
+    modality = (
+        _detect_modality(model, args.e)
+        if args.modality == "auto"
+        else args.modality
+    )
+    if modality == "audio":
+        return run_audio_multimodal_test(api_url, model, timeout=args.timeout)
     return run_multimodal_test(api_url, model, timeout=args.timeout)
 
 
